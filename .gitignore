@@ -1,0 +1,15 @@
+# macOS
+.DS_Store
+
+# 환경
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 부산물
+*.pid
+*.log

@@ -1,0 +1,262 @@
+<title>Claude 설정 상속 인스펙터</title>
+<style>
+  :root{
+    --font-sans:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',sans-serif;
+    --font-mono:ui-monospace,'SF Mono','SFMono-Regular','Menlo','Cascadia Code','Roboto Mono',monospace;
+    --ground:#e9ebef;--surface:#fff;--surface-2:#f3f5f8;--sunk:#eaedf2;--line:#d5dae2;--line-soft:#e4e8ee;
+    --ink:#1a1f2a;--ink-soft:#4b5566;--ink-faint:#8a94a4;
+    --base:#a9731c;--base-fill:rgba(169,115,28,.11);--add:#1f8a4c;--add-fill:rgba(31,138,76,.12);
+    --off:#c1443b;--off-fill:rgba(193,68,59,.10);--accent:#2563b8;--accent-fill:rgba(37,99,184,.10);--sel:rgba(37,99,184,.13);
+    --shadow:0 1px 2px rgba(20,28,44,.06),0 6px 20px rgba(20,28,44,.05);--radius:11px;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --ground:#0c0f16;--surface:#141926;--surface-2:#1a2130;--sunk:#10141d;--line:#29313f;--line-soft:#212836;
+    --ink:#e7eaf1;--ink-soft:#a2acbc;--ink-faint:#616c7e;
+    --base:#e0ab4d;--base-fill:rgba(224,171,77,.13);--add:#5fd08a;--add-fill:rgba(95,208,138,.14);
+    --off:#e46b62;--off-fill:rgba(228,107,98,.13);--accent:#6ba6f0;--accent-fill:rgba(107,166,240,.13);--sel:rgba(107,166,240,.16);
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
+  }}
+  :root[data-theme="light"]{
+    --ground:#e9ebef;--surface:#fff;--surface-2:#f3f5f8;--sunk:#eaedf2;--line:#d5dae2;--line-soft:#e4e8ee;
+    --ink:#1a1f2a;--ink-soft:#4b5566;--ink-faint:#8a94a4;--base:#a9731c;--base-fill:rgba(169,115,28,.11);
+    --add:#1f8a4c;--add-fill:rgba(31,138,76,.12);--off:#c1443b;--off-fill:rgba(193,68,59,.10);
+    --accent:#2563b8;--accent-fill:rgba(37,99,184,.10);--sel:rgba(37,99,184,.13);
+    --shadow:0 1px 2px rgba(20,28,44,.06),0 6px 20px rgba(20,28,44,.05);
+  }
+  :root[data-theme="dark"]{
+    --ground:#0c0f16;--surface:#141926;--surface-2:#1a2130;--sunk:#10141d;--line:#29313f;--line-soft:#212836;
+    --ink:#e7eaf1;--ink-soft:#a2acbc;--ink-faint:#616c7e;--base:#e0ab4d;--base-fill:rgba(224,171,77,.13);
+    --add:#5fd08a;--add-fill:rgba(95,208,138,.14);--off:#e46b62;--off-fill:rgba(228,107,98,.13);
+    --accent:#6ba6f0;--accent-fill:rgba(107,166,240,.13);--sel:rgba(107,166,240,.16);
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box;} body{margin:0;}
+  .app{background:var(--ground);color:var(--ink);font-family:var(--font-sans);min-height:100vh;-webkit-font-smoothing:antialiased;}
+  header.bar{position:sticky;top:0;z-index:10;background:color-mix(in srgb,var(--ground) 90%,transparent);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line-soft);padding:12px clamp(14px,3vw,28px);display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+  .bar h1{font-size:15px;margin:0;font-weight:650;letter-spacing:-.01em;display:flex;align-items:center;gap:9px;}
+  .bar h1 .ic{font-size:17px;} .bar .subtitle{font-family:var(--font-mono);font-size:11.5px;color:var(--ink-faint);}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;margin-left:auto;align-items:center;}
+  .lg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-soft);font-family:var(--font-mono);}
+  .lg .sw{width:11px;height:11px;border-radius:3px;flex:none;}
+  .themebtn{font-family:var(--font-mono);font-size:11.5px;cursor:pointer;background:var(--surface);color:var(--ink-soft);border:1px solid var(--line);border-radius:7px;padding:5px 9px;}
+  .themebtn:hover{color:var(--ink);border-color:var(--ink-faint);}
+  .layout{display:grid;grid-template-columns:minmax(280px,340px) 1fr;}
+  @media (max-width:800px){.layout{grid-template-columns:1fr;}}
+  .tree{border-right:1px solid var(--line-soft);padding:16px clamp(10px,1.5vw,16px) 40px;position:sticky;top:57px;max-height:calc(100vh - 57px);overflow-y:auto;}
+  @media (max-width:800px){.tree{position:static;max-height:none;border-right:none;border-bottom:1px solid var(--line-soft);}}
+  .tree .th{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 6px 6px;}
+  .tree .filter{display:flex;gap:8px;align-items:center;margin:0 6px 12px;font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);}
+  .tree .filter input{accent-color:var(--accent);}
+  .node{display:flex;align-items:center;gap:7px;width:100%;text-align:left;cursor:pointer;background:none;border:1px solid transparent;
+    color:var(--ink-soft);font-family:var(--font-mono);font-size:12.5px;padding:5px 8px;border-radius:7px;line-height:1.3;}
+  .node:hover{background:var(--surface-2);color:var(--ink);}
+  .node:focus-visible{outline:2px solid var(--accent);outline-offset:1px;}
+  .node.sel{background:var(--sel);color:var(--ink);border-color:color-mix(in srgb,var(--accent) 40%,transparent);}
+  .node .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .node.base .nm{color:var(--base);font-weight:650;} .node.passthru .nm,.node.thin .nm{color:var(--ink-faint);}
+  .node .badges{display:flex;gap:3px;flex:none;}
+  .b{width:15px;height:15px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;font-family:var(--font-mono);}
+  .b.s{background:var(--accent-fill);color:var(--accent);} .b.c{background:var(--base-fill);color:var(--base);} .b.m{background:var(--add-fill);color:var(--add);}
+  .insp{padding:22px clamp(16px,3vw,40px) 80px;min-width:0;}
+  .insp .crumb{font-family:var(--font-mono);font-size:12px;color:var(--ink-faint);margin:0 0 4px;}
+  .insp h2{font-family:var(--font-mono);font-size:clamp(17px,2.4vw,22px);margin:0 0 3px;letter-spacing:-.01em;word-break:break-all;}
+  .insp .tagline{font-size:13.5px;color:var(--ink-soft);margin:0 0 22px;}
+  .stack{display:flex;flex-direction:column;gap:6px;margin:0 0 22px;}
+  .layer{display:flex;align-items:center;gap:11px;padding:9px 13px;border-radius:9px;border:1px solid var(--line-soft);background:var(--surface);font-family:var(--font-mono);font-size:12px;box-shadow:var(--shadow);}
+  .layer.absent{opacity:.42;box-shadow:none;background:transparent;border-style:dashed;}
+  .layer.here{border-color:color-mix(in srgb,var(--add) 45%,transparent);}
+  .layer .pri{width:20px;text-align:center;color:var(--ink-faint);flex:none;}
+  .layer .lname{flex:1 1 auto;color:var(--ink);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .layer .lpath{color:var(--ink-faint);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:40%;}
+  .layer .mark{font-size:10.5px;padding:2px 7px;border-radius:999px;flex:none;}
+  .layer .mark.base{background:var(--base-fill);color:var(--base);} .layer .mark.here{background:var(--add-fill);color:var(--add);} .layer .mark.none{background:var(--sunk);color:var(--ink-faint);}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:13px;}
+  .card{background:var(--surface);border:1px solid var(--line-soft);border-radius:var(--radius);padding:15px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:9px;}
+  .card.wide{grid-column:1 / -1;}
+  .card h3{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);margin:0;display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .krow{display:flex;justify-content:space-between;gap:10px;font-family:var(--font-mono);font-size:12.5px;align-items:baseline;}
+  .krow .k{color:var(--ink-soft);} .krow .v{color:var(--ink);text-align:right;word-break:break-all;} .krow .v.hl{color:var(--base);}
+  .items{display:flex;flex-wrap:wrap;gap:5px;}
+  .pill{font-family:var(--font-mono);font-size:11.5px;padding:3px 8px;border-radius:6px;border:1px solid var(--line);color:var(--ink-soft);white-space:nowrap;display:inline-flex;align-items:center;gap:5px;}
+  .pill .o{font-size:9px;font-weight:700;}
+  .pill.base{border-color:transparent;background:var(--base-fill);color:var(--base);}
+  .pill.add{border-color:transparent;background:var(--add-fill);color:var(--add);}
+  .pill.off{border-color:transparent;background:var(--off-fill);color:var(--off);text-decoration:line-through;}
+  .chain{display:flex;flex-direction:column;}
+  .chain .c{display:flex;gap:9px;align-items:flex-start;font-family:var(--font-mono);font-size:12px;padding:5px 0;}
+  .chain .c .dot{width:8px;height:8px;border-radius:999px;margin-top:5px;flex:none;background:var(--base);}
+  .chain .c.added .dot{background:var(--add);}
+  .chain .c .ctxt{color:var(--ink-soft);word-break:break-all;} .chain .c.added .ctxt{color:var(--ink);}
+  .chain .c .clab{font-size:10px;padding:1px 6px;border-radius:999px;margin-left:auto;flex:none;}
+  .chain .c .clab.base{background:var(--base-fill);color:var(--base);} .chain .c .clab.added{background:var(--add-fill);color:var(--add);}
+  .delta{background:var(--surface-2);border:1px dashed var(--line);border-radius:var(--radius);padding:14px 16px;font-size:13px;line-height:1.6;color:var(--ink-soft);margin-bottom:22px;}
+  .delta.empty{color:var(--ink-faint);font-style:italic;}
+  .delta b{color:var(--ink);font-family:var(--font-mono);font-size:12.5px;}
+  .delta .lbl{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);display:block;margin-bottom:8px;}
+  .delta ul{margin:0;padding-left:2px;list-style:none;} .delta li{padding:3px 0;display:flex;gap:8px;align-items:baseline;}
+  .delta li .g{font-family:var(--font-mono);font-weight:700;flex:none;} .delta li.a .g{color:var(--add);} .delta li.o .g{color:var(--off);}
+  .sectitle{font-family:var(--font-mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);margin:26px 0 12px;}
+  footer{border-top:1px solid var(--line-soft);margin-top:34px;padding-top:18px;font-family:var(--font-mono);font-size:11.5px;color:var(--ink-faint);line-height:1.7;}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+
+<div class="app">
+  <header class="bar">
+    <h1><span class="ic">🗺️</span> Claude 설정 상속 인스펙터</h1>
+    <span class="subtitle">~/.claude 를 base 로, 경로마다 덮이는 설정을 해소</span>
+    <div class="legend">
+      <span class="lg"><span class="sw" style="background:var(--base)"></span>base 상속</span>
+      <span class="lg"><span class="sw" style="background:var(--add)"></span>여기서 추가</span>
+      <span class="lg"><span class="sw" style="background:var(--off)"></span>여기서 비활성</span>
+      <button class="themebtn" id="themebtn" type="button">◐ 테마</button>
+    </div>
+  </header>
+  <div class="layout">
+    <nav class="tree" id="tree" aria-label="설정 보유 경로">
+      <p class="th">경로 트리 · 설정 해소 지점</p>
+      <label class="filter"><input type="checkbox" id="onlyDelta"> 델타 있는 경로만</label>
+    </nav>
+    <main class="insp" id="insp"></main>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ─────────────────────────────────────────────────────────────────────
+  // config-map skill 이 이 블록을 collect.sh 출력({base,nodes,meta})으로 교체한다.
+  // 아래는 디자인 확인용 제네릭 샘플 — 실제 데이터로 갈아끼운다.
+  var DATA = /* CONFIG_MAP_DATA */ {
+    base:{ path:"~/.claude", model:"claude-sonnet-5", effort:"high", tui:"fullscreen", theme:"dark",
+      skipAutoPermissionPrompt:false, envKeys:["EXAMPLE_FLAG"], allow:24, deny:6,
+      plugins:["code-reviewer@official","my-lsp@local","team-notes@team"],
+      mcp:["github","filesystem","sentry"], hooks:["UserPromptSubmit"],
+      claudemd:[{path:"~/.claude/CLAUDE.md",lines:30}] },
+    nodes:[
+      {path:"~", depth:0, kind:"passthru", files:[], add:{plugins:[],mcp:[],hooks:[],local:[],claudemd:[]}, off:{mcp:[]}},
+      {path:"~/work", depth:0, kind:"delta", files:[".claude/settings.local.json","CLAUDE.md"],
+        add:{plugins:["deploy@team"],mcp:[],hooks:[],local:[],claudemd:["~/work/CLAUDE.md"]}, off:{mcp:["filesystem"]}},
+      {path:"~/work/api", depth:1, kind:"delta", files:[".claude/settings.json",".mcp.json",".claude/agents/"],
+        add:{plugins:[],mcp:["postgres"],hooks:["PreToolUse"],local:["agents"],claudemd:[".claude/CLAUDE.md"]}, off:{mcp:[]}},
+      {path:"~/scratch", depth:0, kind:"passthru", files:[], add:{plugins:[],mcp:[],hooks:[],local:[],claudemd:[]}, off:{mcp:[]}}
+    ],
+    meta:{ projectCount:4, resolution:"managed > 프로젝트 settings.local.json > 프로젝트 settings.json > 유저 base(~/.claude)" }
+  };
+  // ─────────────────────────────────────────────────────────────────────
+
+  var BASE = DATA.base, NODES = DATA.nodes.map(function(n,i){ n._id = 'n'+i; return n; });
+  var short = function(s){ return String(s).replace(/@.*$/,''); };
+  function esc(s){return String(s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];});}
+
+  var tree=document.getElementById('tree'), insp=document.getElementById('insp');
+  var onlyDelta=document.getElementById('onlyDelta');
+
+  function badges(n){
+    var h='', f=n.files||[];
+    if(f.some(function(x){return x.indexOf('settings')>-1;})) h+='<span class="b s" title="settings">S</span>';
+    if(f.some(function(x){return x.indexOf('CLAUDE.md')>-1;}) || (n.add&&n.add.claudemd&&n.add.claudemd.length)) h+='<span class="b c" title="CLAUDE.md">C</span>';
+    if(f.some(function(x){return x.indexOf('.mcp.json')>-1;}) || (n.add&&n.add.mcp&&n.add.mcp.length)) h+='<span class="b m" title=".mcp.json / MCP">M</span>';
+    return h;
+  }
+  function hasDelta(n){ var a=n.add||{},o=n.off||{}; return (a.plugins||[]).length||(a.mcp||[]).length||(a.hooks||[]).length||(a.local||[]).length||(a.claudemd||[]).length||(o.mcp||[]).length; }
+
+  function buildTree(){
+    Array.prototype.forEach.call(tree.querySelectorAll('.node'), function(b){b.remove();});
+    // base 루트
+    var rb=document.createElement('button'); rb.className='node base'; rb.type='button'; rb.dataset.id='__base__';
+    rb.innerHTML='<span class="nm">★ '+esc(BASE.path)+'</span><span class="badges"></span>';
+    rb.addEventListener('click',function(){selectBase();}); tree.appendChild(rb);
+    NODES.forEach(function(n){
+      if(onlyDelta.checked && n.kind!=='delta') return;
+      var btn=document.createElement('button');
+      btn.className='node '+(n.kind==='passthru'||n.kind==='thin'?'passthru':'');
+      btn.style.paddingLeft=(8+n.depth*15)+'px'; btn.type='button'; btn.dataset.id=n._id;
+      btn.innerHTML='<span class="nm">'+esc(n.path)+'</span><span class="badges">'+badges(n)+'</span>';
+      btn.addEventListener('click',function(){selectNode(n);}); tree.appendChild(btn);
+    });
+  }
+  function markSel(id){ Array.prototype.forEach.call(tree.querySelectorAll('.node'),function(b){b.classList.toggle('sel',b.dataset.id===id);}); }
+  function row(k,v,hl){ return '<div class="krow"><span class="k">'+esc(k)+'</span><span class="v'+(hl?' hl':'')+'">'+esc(v)+'</span></div>'; }
+
+  function pillList(baseArr, addArr, offArr, mapFn){
+    var m=mapFn||function(x){return x;}, html='';
+    (baseArr||[]).forEach(function(x){
+      var isOff=offArr&&offArr.some(function(o){return short(o)===short(x);});
+      html+='<span class="pill '+(isOff?'off':'base')+'"><span class="o">'+(isOff?'−':'⤵')+'</span>'+esc(m(x))+'</span>';
+    });
+    (addArr||[]).forEach(function(x){ html+='<span class="pill add"><span class="o">+</span>'+esc(m(x))+'</span>'; });
+    return html || '<span style="color:var(--ink-faint);font-family:var(--font-mono);font-size:12px">없음</span>';
+  }
+  function cmChainHtml(add){
+    var h=(BASE.claudemd||[]).map(function(c){
+      var meta = c.lines? c.lines+'줄' : (c.imported?'@import':'');
+      return '<div class="c"><span class="dot"></span><span class="ctxt">'+esc(c.path)+(meta?' · '+esc(meta):'')+'</span><span class="clab base">base</span></div>';
+    }).join('');
+    (add||[]).forEach(function(p){ h+='<div class="c added"><span class="dot"></span><span class="ctxt">'+esc(p)+'</span><span class="clab added">이 경로</span></div>'; });
+    return h;
+  }
+  function runtimeCards(pluginAdd, mcpAdd, mcpOff, hookAdd){
+    return '<div class="grid">'+
+      '<div class="card"><h3>런타임</h3>'+row('model',BASE.model,true)+row('effort',BASE.effort,true)+row('theme',BASE.theme,true)+row('tui',BASE.tui,true)+'</div>'+
+      '<div class="card"><h3>권한 <span style="color:var(--ink-faint)">allow · deny</span></h3>'+row('allow 규칙',BASE.allow+' 개',true)+row('deny 규칙',BASE.deny+' 개',true)+
+        '<p class="tagline" style="margin:2px 0 0;font-size:11.5px">권한은 base 고정 — 경로별 로컬은 대개 빈 목록.</p></div>'+
+      '<div class="card wide"><h3>플러그인 <span style="color:var(--ink-faint)">'+(BASE.plugins||[]).length+' base'+(pluginAdd.length?' + '+pluginAdd.length+' 여기':'')+'</span></h3>'+
+        '<div class="items">'+pillList(BASE.plugins,pluginAdd,null,short)+'</div></div>'+
+      '<div class="card wide"><h3>MCP 서버 <span style="color:var(--ink-faint)">'+(BASE.mcp||[]).length+' base'+(mcpAdd.length?' + '+mcpAdd.length:'')+(mcpOff.length?' − '+mcpOff.length:'')+'</span></h3>'+
+        '<div class="items">'+pillList(BASE.mcp,mcpAdd.map(short),mcpOff,short)+'</div></div>'+
+      '<div class="card wide"><h3>훅</h3><div class="items">'+pillList(BASE.hooks,hookAdd,null)+'</div></div>'+
+      '<div class="card wide"><h3>CLAUDE.md 상속 체인 <span style="color:var(--ink-faint)">위→아래로 누적</span></h3><div class="chain">'+cmChainHtml(arguments[4])+'</div></div>'+
+    '</div>';
+  }
+  function foot(){ return '<footer>실측: ~/.claude.json .projects + 각 경로 .claude/settings*.json·CLAUDE.md·.mcp.json · '+esc((DATA.meta&&DATA.meta.projectCount)||NODES.length)+'개 경로<br>'+esc((DATA.meta&&DATA.meta.resolution)||'')+'<br>CLAUDE.md 는 루트→cwd 로 누적 상속. 민감값(env·토큰·메모리 내용)은 스캔 단계에서 마스킹됨.</footer>'; }
+
+  function selectBase(){
+    markSel('__base__');
+    insp.innerHTML='<p class="crumb">뿌리 · 모든 경로가 상속</p><h2>'+esc(BASE.path)+'</h2>'+
+      '<p class="tagline">전역 base 설정. 여기 값이 모든 세션의 출발점이고, 각 경로는 이 위에 델타만 얹는다.</p>'+
+      '<p class="sectitle">유효 설정 (전부 base 원본)</p>'+ runtimeCards([],[],[],[]) + foot();
+    insp.scrollTop=0;
+  }
+  function selectNode(n){
+    markSel(n._id);
+    var add=n.add||{}, off=n.off||{};
+    var hasProjSet=(n.files||[]).indexOf('.claude/settings.json')>-1;
+    var hasLocal=(n.files||[]).some(function(f){return f.indexOf('settings.local.json')>-1;});
+    var L=[
+      {pri:'1',name:'Enterprise managed',path:'/Library/Application Support/ClaudeCode/',present:false},
+      {pri:'2',name:'프로젝트 .claude/settings.local.json',path:n.path+'/.claude/settings.local.json',present:hasLocal},
+      {pri:'3',name:'프로젝트 .claude/settings.json',path:n.path+'/.claude/settings.json',present:hasProjSet},
+      {pri:'4',name:'유저 base ~/.claude/settings.json',path:'~/.claude/settings.json',present:true,base:true}
+    ];
+    var stack=L.map(function(l){
+      var cls='layer'+(l.present?(l.base?'':' here'):' absent');
+      var mark=l.base?'<span class="mark base">base</span>':(l.present?'<span class="mark here">이 경로</span>':'<span class="mark none">없음</span>');
+      return '<div class="'+cls+'"><span class="pri">'+l.pri+'</span><span class="lname">'+esc(l.name)+'</span><span class="lpath">'+esc(l.path)+'</span>'+mark+'</div>';
+    }).join('');
+
+    var items='';
+    (add.plugins||[]).forEach(function(x){items+='<li class="a"><span class="g">＋</span><span>플러그인 활성 <b>'+esc(short(x))+'</b></span></li>';});
+    (add.mcp||[]).forEach(function(x){items+='<li class="a"><span class="g">＋</span><span>MCP <b>'+esc(short(x))+'</b></span></li>';});
+    (add.hooks||[]).forEach(function(x){items+='<li class="a"><span class="g">＋</span><span>훅 <b>'+esc(x)+'</b></span></li>';});
+    (add.local||[]).forEach(function(x){items+='<li class="a"><span class="g">＋</span><span>프로젝트 로컬 <b>'+esc(x)+'</b></span></li>';});
+    (add.claudemd||[]).forEach(function(x){items+='<li class="a"><span class="g">＋</span><span>지침 <b>'+esc(x)+'</b></span></li>';});
+    (off.mcp||[]).forEach(function(x){items+='<li class="o"><span class="g">−</span><span>MCP 비활성 <b>'+esc(short(x))+'</b></span></li>';});
+    var deltaBlock=items?'<div class="delta"><span class="lbl">이 경로가 base 에 더한 것</span><ul>'+items+'</ul></div>':'<div class="delta empty">base 를 그대로 상속 — 이 경로만의 델타 없음.</div>';
+
+    var tag = hasDelta(n) ? '이 경로의 로컬 설정이 base 위에 얹힌다.' : (n.kind==='thin' ? '설정 파일은 있으나 실질 델타 없음 — base 상속.' : '설정 파일 없음 → base 100% 상속.');
+    insp.innerHTML='<p class="crumb">'+(n.depth>0?'하위 경로 · ':'')+'선택됨</p><h2>'+esc(n.path)+'</h2><p class="tagline">'+tag+'</p>'+
+      '<p class="sectitle">해소 순서 · 위가 이긴다</p><div class="stack">'+stack+'</div>'+ deltaBlock +
+      '<p class="sectitle">유효 설정 (base ⤵ 상속 + 이 경로 델타)</p>'+
+      runtimeCards(add.plugins||[], add.mcp||[], off.mcp||[], add.hooks||[], add.claudemd||[]) + foot();
+    insp.scrollTop=0;
+  }
+
+  onlyDelta.addEventListener('change',buildTree);
+  document.getElementById('themebtn').addEventListener('click',function(){
+    var r=document.documentElement,cur=r.getAttribute('data-theme');
+    if(!cur) cur=window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';
+    r.setAttribute('data-theme',cur==='dark'?'light':'dark');
+  });
+  buildTree(); selectBase();
+})();
+</script>

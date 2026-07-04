@@ -1,0 +1,13 @@
+{
+  "name": "claude-plugings",
+  "owner": {
+    "name": "Rockheung"
+  },
+  "plugins": [
+    {
+      "name": "config-map",
+      "source": "./plugins/config-map",
+      "description": "Claude Code 설정을 경로 상속(cascade)까지 해소해 인터랙티브 지형도(Artifact)로 시각화. collect.sh 가 ~/.claude(base)와 각 경로의 .claude/settings·CLAUDE.md·.mcp.json 을 읽기전용 실측 → base 대비 델타 계산 → 경로 트리를 고르면 그 지점의 유효 설정을 origin 배지(상속/추가/비활성)로 보여주는 DevTools computed-styles 형 인스펙터를 렌더. 민감값 마스킹. 추측 아닌 실측이 소스."
+    }
+  ]
+}
