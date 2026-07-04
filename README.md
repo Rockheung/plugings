@@ -1,12 +1,12 @@
-# claude-plugings
+# plugings
 
 > [Claude Code](https://claude.com/claude-code) 플러그인 마켓플레이스 — by [Rockheung](https://github.com/Rockheung).
 
 ## 설치
 
 ```
-/plugin marketplace add Rockheung/claude-plugings
-/plugin install config-map@claude-plugings
+/plugin marketplace add Rockheung/plugings
+/plugin install config-map@plugings
 ```
 
 ## 플러그인
