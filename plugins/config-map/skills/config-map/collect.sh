@@ -15,6 +15,21 @@ GLOBAL_JSON="$HOME/.claude.json"
 command -v jq >/dev/null 2>&1 || { echo '{"error":"jq_not_found"}'; exit 0; }
 tilde() { printf '%s' "${1/#$HOME_DIR/\~}"; }
 
+# ── base = settings.json + settings.local.json 병합 (Claude 가 둘 다 로드; local 우선) ──
+# 설정이 어느 파일에 있든(특히 전역 설정을 settings.local.json 으로 몰아둔 경우) 견고하게 읽는다.
+# 스칼라·객체(mcpServers·enabledPlugins·env·hooks)는 local 우선 deep-merge, 권한 규칙은 union.
+MERGED_BASE="$(mktemp)"; trap 'rm -f "$MERGED_BASE"' EXIT
+jq -s '
+  (.[0] // {}) as $m | (.[1] // {}) as $l |
+  ($m * $l)
+  | .permissions.allow = ((($m.permissions.allow // []) + ($l.permissions.allow // [])) | unique)
+  | .permissions.deny  = ((($m.permissions.deny  // []) + ($l.permissions.deny  // [])) | unique)
+  | .permissions.ask   = ((($m.permissions.ask   // []) + ($l.permissions.ask   // [])) | unique)
+' <([ -f "$BASE_SETTINGS" ] && cat "$BASE_SETTINGS" || echo '{}') \
+  <([ -f "$BASE_LOCAL" ] && cat "$BASE_LOCAL" || echo '{}') \
+  > "$MERGED_BASE" 2>/dev/null || echo '{}' > "$MERGED_BASE"
+BASE_SETTINGS="$MERGED_BASE"   # 이후 모든 base 읽기는 병합본을 소스로 삼는다
+
 # ── base enabledPlugins 집합 (settings.json + settings.local.json 의 true 인 것) ──
 base_plugins_json='[]'
 {
