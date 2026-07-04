@@ -1,0 +1,9 @@
+{
+  "name": "git-multi-account",
+  "description": "한 머신에서 git/GitHub 계정이 2개 이상일 때, 전환(user.email 바꾸기·gh auth switch)을 자동화가 아니라 *제거*하는 설계 스킬. 레포 폴더 위치를 신원으로 못박아(includeIf gitdir + gh auth token --user credential helper) 커밋 author·GPG 서명·push 인증을 전역 gh active 상태와 무관하게 폴더별 자동 라우팅. 대안(OS 유저 분리·Docker·su·SSH) 평가와 includeIf 로드 순서 함정, 검증법 포함.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "MIT"
+}

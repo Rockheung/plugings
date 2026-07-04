@@ -8,6 +8,11 @@
       "name": "config-map",
       "source": "./plugins/config-map",
       "description": "Claude Code 설정을 경로 상속(cascade)까지 해소해 인터랙티브 지형도(Artifact)로 시각화. collect.sh 가 ~/.claude(base)와 각 경로의 .claude/settings·CLAUDE.md·.mcp.json 을 읽기전용 실측 → base 대비 델타 계산 → 경로 트리를 고르면 그 지점의 유효 설정을 origin 배지(상속/추가/비활성)로 보여주는 DevTools computed-styles 형 인스펙터를 렌더. 민감값 마스킹. 추측 아닌 실측이 소스."
+    },
+    {
+      "name": "git-multi-account",
+      "source": "./plugins/git-multi-account",
+      "description": "한 머신에서 git/GitHub 계정이 2개 이상일 때, 전환(user.email 바꾸기·gh auth switch)을 자동화가 아니라 *제거*하는 설계 스킬. 레포 폴더 위치를 신원으로 못박아(includeIf gitdir + gh auth token --user credential helper) 커밋 author·GPG 서명·push 인증을 전역 gh active 상태와 무관하게 폴더별 자동 라우팅. 대안(OS 유저 분리·Docker·su·SSH) 평가와 includeIf 로드 순서 함정, 검증법 포함."
     }
   ]
 }
