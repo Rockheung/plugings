@@ -1,0 +1,9 @@
+{
+  "name": "time-budget",
+  "description": "Claude는 시간 흐름을 느끼는 패시브 센서가 없다. 멀티스텝·도구다발·장기실행 작업을 시작할 때, 또는 \"왜 멍때려/오래 걸린다/시간 재라\"류 상황에서, 시간을 느끼는 대신 조회·알람하도록 능동 측정을 건다(date 프로브 + 백그라운드 트립와이어) + 시간 프록시(왕복·빈턴·출력량·우회) 최소화. 타이머로 되는 것과 안 되는 것(턴 내부 자기생성은 못 끊음)을 정직하게 구분한다.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "MIT"
+}

@@ -33,6 +33,11 @@
       "name": "lens",
       "source": "./plugins/lens",
       "description": "Claude Code 세션을 들여다보는 범용 렌즈. monitor-session: 세션/sub-agent jsonl 실시간 stream, optional --for \"<목적>\" 로 그 렌즈에 비춰 관련 라인만 surface."
+    },
+    {
+      "name": "time-budget",
+      "source": "./plugins/time-budget",
+      "description": "Claude에겐 경과 시간을 느끼는 패시브 센서가 없다는 전제에서, 느끼는 대신 능동 조회·알람으로 바꾼다: date 프로브(clock.sh start/elapsed)로 경과를 측정하고, 백그라운드 트립와이어(sleep N → run_in_background 완료 시 재호출)를 알람으로 쓴다. 타이머로 되는 것(턴 사이 경과 체크·외부 장기작업 감시)과 안 되는 것(턴 내부 자기생성은 못 끊음, 워치독 서브에이전트는 결국 sleep과 동급)을 정직하게 구분하고, 타이머가 못 잡는 부분은 시간 프록시 최소화(왕복 횟수·빈 턴·출력량·우회 단계)로 관리한다."
     }
   ]
 }
