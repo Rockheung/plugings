@@ -38,9 +38,14 @@ base_plugins_json='[]'
   [ -f "$BASE_LOCAL" ]    && b=$(jq -c '(.enabledPlugins // {})' "$BASE_LOCAL" 2>/dev/null || echo '{}')
   base_plugins_json=$(jq -nc --argjson a "$a" --argjson b "$b" '($a * $b) | to_entries | map(select(.value==true) | .key)')
 }
-# base MCP 서버 이름
+# base MCP 서버 이름: settings(.local).json 의 mcpServers + ~/.claude.json 최상위 mcpServers
+#   (claude mcp add -s user 는 파일이 아니라 ~/.claude.json 최상위 mcpServers 로 감 — 여기 안 읽으면 base 에서 누락됨)
 base_mcp_json='[]'
 [ -f "$BASE_SETTINGS" ] && base_mcp_json=$(jq -c '(.mcpServers // {}) | keys' "$BASE_SETTINGS" 2>/dev/null || echo '[]')
+if [ -f "$GLOBAL_JSON" ]; then
+  global_user_mcp=$(jq -c '(.mcpServers // {}) | keys' "$GLOBAL_JSON" 2>/dev/null || echo '[]')
+  base_mcp_json=$(jq -nc --argjson a "$base_mcp_json" --argjson b "$global_user_mcp" '($a + $b) | unique')
+fi
 
 # ── BASE 블록 ──
 sget(){ [ -f "$BASE_SETTINGS" ] && jq -r "$1" "$BASE_SETTINGS" 2>/dev/null || echo "${2:-unset}"; }
@@ -119,6 +124,12 @@ delta_for(){ # $1 = 절대 경로 → node JSON (또는 빈 문자열이면 skip
   add_mcp=$(jq -nc --argjson f "$mcpfile" --argjson merged "$merged" \
     '($merged.enabledMcpjsonServers // []) as $en | ($f + $en) | unique')
   off_mcp=$(jq -nc --argjson merged "$merged" '($merged.disabledMcpjsonServers // []) | unique')
+
+  # local scope MCP: claude mcp add(기본 scope=local) 는 파일로 안 남고 ~/.claude.json 의
+  # .projects[이 절대경로].mcpServers 에 저장됨 — 그 서버명도 이 경로의 add.mcp 로 합류시킨다.
+  local local_mcp='[]'
+  [ -f "$GLOBAL_JSON" ] && local_mcp=$(jq -c --arg p "$P" '(.projects[$p].mcpServers // {}) | keys' "$GLOBAL_JSON" 2>/dev/null || echo '[]')
+  add_mcp=$(jq -nc --argjson a "$add_mcp" --argjson b "$local_mcp" '($a + $b) | unique')
 
   # 훅: 이 경로 settings 의 hooks 이벤트명
   add_hooks=$(jq -nc --argjson merged "$merged" '($merged.hooks // {}) | keys')
