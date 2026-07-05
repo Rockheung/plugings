@@ -1,0 +1,9 @@
+{
+  "name": "lens",
+  "description": "Claude Code 세션을 들여다보는 범용 렌즈. monitor-session: 세션/sub-agent jsonl 실시간 stream, optional --for \"<목적>\" 로 그 렌즈에 비춰 관련 라인만 surface.",
+  "author": {
+    "name": "Rockheung",
+    "email": "rockheung@gmail.com"
+  },
+  "keywords": ["session", "transcript", "monitoring", "observability", "sub-agent", "tail"]
+}

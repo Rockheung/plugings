@@ -13,7 +13,12 @@
 
 | 플러그인 | 설명 |
 |---|---|
-| **[config-map](./plugins/config-map)** | Claude Code 설정을 **경로 상속(cascade)까지 해소**해 인터랙티브 지형도로 시각화. `~/.claude`(base) 위에 각 경로가 얹는 델타(플러그인·MCP·훅·CLAUDE.md)를 실측해, 경로를 고르면 그 지점의 유효 설정을 origin 배지로 보여준다. DevTools computed-styles 형 인스펙터. 민감값 마스킹. |
+| **[config-map](./plugins/config-map)** | Claude Code 설정을 **경로 상속(cascade)까지 해소**해 인터랙티브 지형도로 시각화. `~/.claude`(base) 위에 각 경로가 얹는 델타(플러그인·MCP·훅·CLAUDE.md)를 실측해, 경로를 고르면 그 지점의 유효 설정을 origin 배지로 보여준다. 민감값 마스킹. |
+| **[confirm-gate](./plugins/confirm-gate)** | 위험·비가역 Bash 명령을 실행 직전 **15초 native 다이얼로그로 게이트**. 무응답 시 클래스별 기본값(비가역=deny, 가역=allow). 한글 명령도 안 깨짐. |
+| **[rectify](./plugins/rectify)** | **세션 자기교정** — 행위를 `CLAUDE.md` 규칙과 대조해 위반을 가려 Lessons Learned에 기록·유지. magistrate → examiner(분리·적대 감사) → chronicler. 사후 + `rectify-watch` 라이브. |
+| **[lore](./plugins/lore)** | 미지·레거시 코드베이스를 규율 있게 학습해 **자가유지 지식베이스**를 쌓는 3-에이전트. Scout(발견) → Archivist(종합·기록) → Curator(재검증). 특정 지식레포에 비종속. |
+| **[lens](./plugins/lens)** | Claude Code 세션을 들여다보는 **범용 렌즈**. `monitor-session`: 세션/sub-agent jsonl 실시간 stream, `--for "<목적>"`로 그 목적에 맞는 라인만 surface. |
+| **[git-multi-account](./plugins/git-multi-account)** | 한 머신의 여러 git/GitHub 계정 전환을 *제거* — 폴더 위치로 identity·서명·push 인증 자동 라우팅. |
 
 ## 철학
 

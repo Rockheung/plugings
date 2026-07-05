@@ -1,0 +1,9 @@
+{
+  "name": "confirm-gate",
+  "description": "위험/비가역 Bash 명령을 15초 native 다이얼로그로 게이트. 무응답 시 명령 클래스별 기본값으로 자동 결정(lazy): 비가역=deny, 가역=allow. 한글 명령도 깨지지 않음.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "Internal"
+}

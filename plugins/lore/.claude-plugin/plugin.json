@@ -1,0 +1,9 @@
+{
+  "name": "lore",
+  "description": "미지/레거시 코드베이스를 규율 있는 탐색으로 학습해 자가유지 지식베이스를 쌓는 3-에이전트 묶음. Scout(발견) → Archivist(지휘·종합·기록) → Curator(기록된 지식 주기 재검증). 발견→기록→검증→재발견 루프.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "Internal"
+}

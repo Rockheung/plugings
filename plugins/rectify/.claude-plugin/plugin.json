@@ -1,0 +1,9 @@
+{
+  "name": "rectify",
+  "description": "세션 자기교정 — 이 세션의 행위를 CLAUDE.md 규칙(오라클)과 대조해 위반·잘된패턴을 식별하고 Lessons Learned 에 기록·유지한다. lore 구조 차용: 궤적·아티팩트 수집 → 분리된 critic 병렬 감사(self-bias 회피) → 종합·승인 → curator 가 scope 와 함께 기록·주기 재검증. 연구 근거: 순수 자기교정은 약하고 외부검증·오라클이 살린다.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "Internal"
+}
