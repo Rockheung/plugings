@@ -46,6 +46,23 @@ if [ -f "$GLOBAL_JSON" ]; then
   global_user_mcp=$(jq -c '(.mcpServers // {}) | keys' "$GLOBAL_JSON" 2>/dev/null || echo '[]')
   base_mcp_json=$(jq -nc --argjson a "$base_mcp_json" --argjson b "$global_user_mcp" '($a + $b) | unique')
 fi
+# 유저스코프로 활성화된 플러그인이 자체 번들한 .mcp.json 도 base MCP 로 합류.
+#   (플러그인의 .mcp.json 은 settings.json 에도 ~/.claude.json 에도 안 남고, 오직
+#    plugins/installed_plugins.json → installPath/.mcp.json 로만 추적됨)
+INSTALLED_PLUGINS_JSON="$CLAUDE_DIR/plugins/installed_plugins.json"
+if [ -f "$INSTALLED_PLUGINS_JSON" ]; then
+  plugin_paths=$(jq -nc --argjson names "$base_plugins_json" --slurpfile ip "$INSTALLED_PLUGINS_JSON" '
+    ($ip[0].plugins // {}) as $all
+    | [ $names[] as $n | ($all[$n] // [])[] | select(.scope=="user") | .installPath ]')
+  plugin_mcp='[]'
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    f="$p/.mcp.json"; [ -f "$f" ] || continue
+    k=$(jq -c '(.mcpServers // .) | keys' "$f" 2>/dev/null || echo '[]')
+    plugin_mcp=$(jq -nc --argjson a "$plugin_mcp" --argjson b "$k" '($a + $b) | unique')
+  done < <(jq -r '.[]' <<<"$plugin_paths" 2>/dev/null || true)
+  base_mcp_json=$(jq -nc --argjson a "$base_mcp_json" --argjson b "$plugin_mcp" '($a + $b) | unique')
+fi
 
 # ── BASE 블록 ──
 sget(){ [ -f "$BASE_SETTINGS" ] && jq -r "$1" "$BASE_SETTINGS" 2>/dev/null || echo "${2:-unset}"; }
