@@ -1,0 +1,9 @@
+{
+  "name": "mcp-slack",
+  "description": "로컬 Docker로 띄운 slack-explorer-mcp(ghcr.io/shibayu36/slack-explorer-mcp)를, 토큰 주입용 caddy 프록시(slack-mcp-proxy) 경유로 HTTP MCP 서버 'slack'으로 번들 등록한다. slack-explorer-mcp는 내부 네트워크에만 열려있고 프록시(19091)만 외부 포트로 노출 — 프록시가 X-Slack-User-Token 헤더를 자동 주입해 실질적으로 두 컨테이너가 하나의 MCP 진입점을 이룬다. 컨테이너 자체는 이 플러그인이 관리하지 않는다.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "MIT"
+}

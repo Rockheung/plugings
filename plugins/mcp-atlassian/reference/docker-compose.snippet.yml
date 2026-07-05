@@ -1,0 +1,16 @@
+# ~/mcps/docker-compose.yml 에 넣을 서비스 조각. 이 플러그인은 .mcp.json 으로
+# http://127.0.0.1:19100/mcp 에 연결만 시도한다 — 컨테이너 기동은 별개, 직접 관리해야 함.
+services:
+  mcp-atlassian:
+    image: ghcr.io/sooperset/mcp-atlassian:latest
+    container_name: mcp-atlassian
+    restart: always
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "19100"
+      TRANSPORT: "streamable-http"
+      JIRA_URL: "${JIRA_URL}"          # 예: https://yourteam.atlassian.net
+      JIRA_USERNAME: "${JIRA_USERNAME}" # 계정 이메일
+      JIRA_API_TOKEN: "${JIRA_API_TOKEN}"
+    ports:
+      - "19100:19100"

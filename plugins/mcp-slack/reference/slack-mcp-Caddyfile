@@ -1,0 +1,6 @@
+:19091 {
+  reverse_proxy slack-explorer-mcp:19090 {
+    # 모든 요청에 Slack 토큰 헤더를 자동으로 박아 넣음
+    header_up X-Slack-User-Token {$SLACK_USER_TOKEN}
+  }
+}

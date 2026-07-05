@@ -1,0 +1,9 @@
+{
+  "name": "mcp-atlassian",
+  "description": "로컬 Docker로 띄운 mcp-atlassian(ghcr.io/sooperset/mcp-atlassian) 컨테이너를 HTTP MCP 서버 'atlassian'으로 번들 등록한다. 컨테이너 자체는 이 플러그인이 관리하지 않는다 — reference/docker-compose.snippet.yml 로 별도 실행 필요. 컨테이너가 떠있지 않으면 MCP 연결만 실패할 뿐 플러그인 활성화 자체엔 영향 없음.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "MIT"
+}
