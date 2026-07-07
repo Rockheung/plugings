@@ -7,9 +7,35 @@
 # stdout 계약: 비밀값 외엔 아무것도 stdout 에 내지 않는다 (상태 메시지는 전부 stderr).
 set -euo pipefail
 
+usage() {
+  cat >&2 <<'EOF'
+usage: secret-get [--prime] <service-name>
+
+~/.secrets/<service-name>.gpg 를 복호화해 비밀번호 한 줄을 stdout 에 출력한다.
+
+  --prime     복호화 성공 여부만 확인하고 비밀값은 출력하지 않는다 ("prime the
+              pump" — 마중물. 캐시를 미리 채워두는 cache priming 에서 온 이름).
+              - 사람: 비밀번호를 화면·스크롤백에 띄우지 않고 passphrase
+                캐시(12h)만 채울 때
+              - Claude 등 비대화형: 비밀값 노출 없이 캐시 생존 확인
+                (살아 있으면 exit 0, 아니면 exit 1)
+  -h, --help  이 도움말
+
+비대화형(CLAUDECODE=1 또는 TTY 없음)에선 pinentry 를 절대 띄우지 않는다 —
+gpg-agent 캐시가 있을 때만 성공하고, 없으면 "별도 터미널에서 secret-get
+--prime <name> 실행" 안내 후 실패한다.
+
+stdout 계약: 비밀값 외엔 아무것도 stdout 에 내지 않는다 (도움말·상태 메시지는
+전부 stderr). 등록된 이름 목록은 secret-list.
+EOF
+}
+
 prime=0
-if [ "${1:-}" = "--prime" ]; then prime=1; shift; fi
-[ $# -eq 1 ] || { echo "usage: get.sh [--prime] <service-name>" >&2; exit 1; }
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  --prime) prime=1; shift ;;
+esac
+[ $# -eq 1 ] || { usage; exit 1; }
 
 name="$1"
 src="$HOME/.secrets/$name.gpg"
