@@ -1,10 +1,41 @@
 #!/usr/bin/env bash
-# secrets/get.sh <service-name> — ~/.secrets/<service-name>.gpg 를 복호화해 출력.
+# secrets/get.sh [--prime] <service-name> — ~/.secrets/<service-name>.gpg 를 복호화해 출력.
+# --prime: 복호화 성공 여부만 확인하고 비밀값은 stdout 에 내지 않는다 — 사람이 비밀번호를
+#   화면에 띄우지 않고 passphrase 캐시만 채우거나, Claude 가 캐시 생존을 확인할 때.
 # passphrase 는 사람의 대화형 셸에서만 묻는다. Claude Code(CLAUDECODE=1) 등 비대화형 경로에선
 # pinentry 를 절대 띄우지 않고(TUI 파손 방지) gpg-agent 캐시가 있을 때만 성공, 없으면 안내 후 실패.
+# stdout 계약: 비밀값 외엔 아무것도 stdout 에 내지 않는다 (상태 메시지는 전부 stderr).
 set -euo pipefail
 
-[ $# -eq 1 ] || { echo "usage: get.sh <service-name>" >&2; exit 1; }
+usage() {
+  cat >&2 <<'EOF'
+usage: secret-get [--prime] <service-name>
+
+~/.secrets/<service-name>.gpg 를 복호화해 비밀번호 한 줄을 stdout 에 출력한다.
+
+  --prime     복호화 성공 여부만 확인하고 비밀값은 출력하지 않는다 ("prime the
+              pump" — 마중물. 캐시를 미리 채워두는 cache priming 에서 온 이름).
+              - 사람: 비밀번호를 화면·스크롤백에 띄우지 않고 passphrase
+                캐시(12h)만 채울 때
+              - Claude 등 비대화형: 비밀값 노출 없이 캐시 생존 확인
+                (살아 있으면 exit 0, 아니면 exit 1)
+  -h, --help  이 도움말
+
+비대화형(CLAUDECODE=1 또는 TTY 없음)에선 pinentry 를 절대 띄우지 않는다 —
+gpg-agent 캐시가 있을 때만 성공하고, 없으면 "별도 터미널에서 secret-get
+--prime <name> 실행" 안내 후 실패한다.
+
+stdout 계약: 비밀값 외엔 아무것도 stdout 에 내지 않는다 (도움말·상태 메시지는
+전부 stderr). 등록된 이름 목록은 secret-list.
+EOF
+}
+
+prime=0
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+  --prime) prime=1; shift ;;
+esac
+[ $# -eq 1 ] || { usage; exit 1; }
 
 name="$1"
 src="$HOME/.secrets/$name.gpg"
@@ -25,15 +56,25 @@ fi
 
 # 사람의 대화형 셸: pinentry 허용 (Claude Code 경유가 아니고 stdin 이 TTY 일 때만)
 if [ -z "${CLAUDECODE:-}" ] && [ -t 0 ]; then
+  if [ "$prime" -eq 1 ]; then
+    gpg --decrypt "$src" >/dev/null
+    echo "OK: 복호화 성공 — passphrase 캐시 채워짐(~12h), 비밀값은 출력하지 않았습니다: $name" >&2
+    exit 0
+  fi
   exec gpg --decrypt "$src"
 fi
 
 # 비대화형: 캐시된 passphrase 로만 시도 — pinentry-mode cancel 은 캐시 미스 시 즉시 실패한다.
-if gpg --batch --pinentry-mode cancel --quiet --decrypt "$src" 2>/dev/null; then
+if [ "$prime" -eq 1 ]; then
+  if gpg --batch --pinentry-mode cancel --quiet --decrypt "$src" >/dev/null 2>&1; then
+    echo "OK: passphrase 캐시 살아 있음(비밀값 미출력): $name" >&2
+    exit 0
+  fi
+elif gpg --batch --pinentry-mode cancel --quiet --decrypt "$src" 2>/dev/null; then
   exit 0
 fi
 
 echo "복호화 실패 — passphrase 캐시가 없어 비대화형 셸에서는 조회할 수 없습니다." >&2
-echo "별도 터미널(사람의 대화형 셸)에서 직접 실행하세요: secret-get $name" >&2
-echo "(성공하면 gpg-agent 가 12시간 캐싱해 이후 비대화형 조회가 가능해집니다)" >&2
+echo "별도 터미널(사람의 대화형 셸)에서 직접 실행하세요: secret-get --prime $name" >&2
+echo "(--prime 은 비밀번호를 화면에 출력하지 않고 캐시만 채웁니다. 성공하면 gpg-agent 가 12시간 캐싱해 이후 비대화형 조회가 가능해집니다)" >&2
 exit 1

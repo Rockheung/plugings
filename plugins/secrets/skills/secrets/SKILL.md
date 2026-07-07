@@ -40,15 +40,20 @@ secret-store <service-name>
 
 ## 조회 — Claude 가 자율 호출 가능 (단, 캐시 있을 때만 성공)
 ```bash
-secret-get <service-name>
+secret-get <service-name>            # 비밀값 한 줄을 stdout 에 출력
+secret-get --prime <service-name>    # 복호화 성공만 확인, 비밀값은 출력하지 않음
 ```
-`~/.gnupg/gpg-agent.conf` 에 `default-cache-ttl`/`max-cache-ttl` 12시간(43200초)으로 설정돼 있다. 즉 사용자가 하루 한 번(자기 터미널에서 `secret-store`/`secret-get` 실행 시) passphrase 를 입력하면, 이후 12시간은 gpg-agent 가 캐싱해 Claude 가 `secret-get` 을 프롬프트 없이 자유롭게 호출할 수 있다.
+`~/.gnupg/gpg-agent.conf` 에 `default-cache-ttl`/`max-cache-ttl` 12시간(43200초)으로 설정돼 있다. 즉 사용자가 하루 한 번(자기 터미널에서 `secret-get --prime` 실행 시) passphrase 를 입력하면, 이후 12시간은 gpg-agent 가 캐싱해 Claude 가 `secret-get` 을 프롬프트 없이 자유롭게 호출할 수 있다.
+
+`--prime` 은 stdout 에 아무것도 내지 않는다(상태 메시지는 stderr) — 용도 두 가지:
+- **사람**: 비밀번호를 터미널 화면·스크롤백에 띄우지 않고 passphrase 캐시만 채울 때. 사용자에게 캐시 갱신을 안내할 땐 항상 이 형태로 안내한다.
+- **Claude**: 비밀값을 대화 컨텍스트에 노출하지 않고 캐시 생존 여부만 확인할 때 (살아 있으면 exit 0).
 
 `get.sh` 는 실행 경로에 따라 다르게 동작한다:
 - **사람의 대화형 셸**(TTY 있음 + `CLAUDECODE` 없음): 평소처럼 pinentry 로 passphrase 를 물을 수 있다.
-- **비대화형 경로**(Claude Code 등): `--pinentry-mode cancel` 로 **pinentry 를 절대 띄우지 않는다** — 캐시가 살아 있으면 조용히 성공, 캐시가 없으면 즉시 실패하며 "별도 터미널에서 `secret-get <name>` 을 직접 실행하라"는 안내를 낸다. (예전엔 캐시 만료 시 pinentry 가 Claude Code TUI 위에 그려져 화면을 깨뜨렸다 — 그걸 막는 가드다.)
+- **비대화형 경로**(Claude Code 등): `--pinentry-mode cancel` 로 **pinentry 를 절대 띄우지 않는다** — 캐시가 살아 있으면 조용히 성공, 캐시가 없으면 즉시 실패하며 "별도 터미널에서 `secret-get --prime <name>` 을 직접 실행하라"는 안내를 낸다. (예전엔 캐시 만료 시 pinentry 가 Claude Code TUI 위에 그려져 화면을 깨뜨렸다 — 그걸 막는 가드다.)
 
-Claude 는 `secret-get` 이 이 안내와 함께 실패하면 사용자에게 별도 터미널에서 한 번 실행해 캐시를 채워달라고 요청한다.
+Claude 는 `secret-get` 이 이 안내와 함께 실패하면 사용자에게 별도 터미널에서 `secret-get --prime <name>` 을 한 번 실행해 캐시를 채워달라고 요청한다 (`--prime` 이므로 비밀번호가 사용자 화면에도 찍히지 않는다).
 
 **주의**: 이 캐싱 때문에 "Claude 는 절대 못 꺼낸다"는 아니게 된다 — 이 macOS 계정으로 실행되는 건 뭐든 캐시 유효시간 동안 꺼낼 수 있다. 남는 방어선은 (1) memory 파일처럼 매 세션 컨텍스트에 자동으로 실리지 않고 명시적 호출이 필요하다는 것, (2) 캐시 만료 후엔 사람 개입이 다시 필요하다는 것 두 가지뿐이다.
 
