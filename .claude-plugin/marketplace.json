@@ -30,6 +30,11 @@
       "description": "미지/레거시 코드베이스를 규율 있는 탐색으로 학습해 자가유지 지식베이스를 쌓는 3-에이전트 묶음. Scout(발견) → Archivist(지휘·종합·기록) → Curator(기록된 지식 주기 재검증). 발견→기록→검증→재발견 루프."
     },
     {
+      "name": "secrets",
+      "source": "./plugins/secrets",
+      "description": "비밀값(로그인·API 키)을 memory 평문 대신 GPG 대칭키로 ~/.secrets/<name>.gpg 에 암호화 저장하는 스킬 + CLI(secret-store/get/list). passphrase 는 사람의 대화형 셸에서만 — Claude Code 등 비대화형 경로에선 pinentry 를 띄우지 않고(TUI 파손 방지) gpg-agent 캐시(12h)가 있을 때만 조회 성공, 없으면 직접 실행 안내."
+    },
+    {
       "name": "lens",
       "source": "./plugins/lens",
       "description": "Claude Code 세션을 들여다보는 범용 렌즈. monitor-session: 세션/sub-agent jsonl 실시간 stream, optional --for \"<목적>\" 로 그 렌즈에 비춰 관련 라인만 surface."
