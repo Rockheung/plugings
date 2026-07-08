@@ -41,12 +41,12 @@ git toplevel(마커 파일 존재 시)별로 intelephense 인스턴스를 lazy s
 }
 ```
 
-## 설치 캐비앳 (중요)
+## 설치 캐비앗 (중요)
 
-변수 치환 미동작 때문에 `plugin.json` 의 두 경로가 **실경로 하드코딩**이다. 설치 후 직접 수정할 것:
-
-- `lspServers.intelephense.args[0]` → 이 플러그인이 설치된 실제 경로의 `scripts/php-lsp-proxy.js`
-- `initializationOptions.storagePath` → 사용자 홈의 캐시 경로 (예: `~/.cache/intelephense` 실경로)
+- 스크립트 경로는 `${CLAUDE_PLUGIN_ROOT}` 로 해소된다(**args 에서는 치환 동작 실측** — directory
+  마켓플레이스는 소스 디렉토리, github 마켓플레이스는 캐시 디렉토리로 해소). 수정 불필요.
+- 단 `initializationOptions.storagePath` 는 치환 미동작(실측: `${CLAUDE_PLUGIN_DATA}` → 리터럴
+  디렉토리 생성) — **설치 후 사용자 홈의 실경로로 직접 수정할 것** (예: `/Users/<me>/.cache/intelephense`).
 
 intelephense 는 전역 설치 필요: `npm i -g intelephense`.
 

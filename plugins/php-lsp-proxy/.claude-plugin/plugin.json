@@ -9,7 +9,7 @@
     "intelephense": {
       "command": "node",
       "args": [
-        "/Users/heungjun/.claude/local-plugins/plugins/php-lsp-proxy/scripts/php-lsp-proxy.js"
+        "${CLAUDE_PLUGIN_ROOT}/scripts/php-lsp-proxy.js"
       ],
       "extensionToLanguage": {
         ".php": "php",
