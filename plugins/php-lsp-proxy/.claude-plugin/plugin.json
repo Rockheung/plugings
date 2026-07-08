@@ -1,0 +1,43 @@
+{
+  "name": "php-lsp-proxy",
+  "description": "PHP language server (Intelephense) behind a stdio proxy launcher — git-worktree-aware workspace auto-detection, JSON-RPC logging, custom PHP extensions (.cm .sub .cls)",
+  "version": "0.4.1",
+  "author": {
+    "name": "heungjun"
+  },
+  "lspServers": {
+    "intelephense": {
+      "command": "node",
+      "args": [
+        "/Users/heungjun/.claude/local-plugins/plugins/php-lsp-proxy/scripts/php-lsp-proxy.js"
+      ],
+      "extensionToLanguage": {
+        ".php": "php",
+        ".phtml": "php",
+        ".cm": "php",
+        ".sub": "php",
+        ".cls": "php"
+      },
+      "initializationOptions": {
+        "storagePath": "/Users/heungjun/.cache/intelephense"
+      },
+      "settings": {
+        "intelephense": {
+          "files": {
+            "associations": [
+              "*.php",
+              "*.phtml",
+              "*.cm",
+              "*.sub",
+              "*.cls"
+            ]
+          },
+          "environment": {
+            "phpVersion": "7.0.33",
+            "shortOpenTag": true
+          }
+        }
+      }
+    }
+  }
+}
