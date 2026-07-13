@@ -58,6 +58,11 @@
       "name": "php-lsp-proxy",
       "source": "./plugins/php-lsp-proxy",
       "description": "PHP LSP(intelephense)를 stdio 프록시 멀티플렉서 뒤에서 구동. LSP 도구 호출의 파일 경로가 곧 워크스페이스 선택 — 요청 uri 의 git toplevel 별로 intelephense 인스턴스를 lazy spawn·라우팅(worktree 자동 인식), workspace/symbol 은 전 인스턴스 fan-out 병합, 인덱싱 완료 전 요청은 게이트로 보류(빈 결과 레이스 차단), JSON-RPC 전 구간 로깅으로 진단 가능. 커스텀 PHP 확장자(.cm .sub .cls)와 shortOpenTag 레거시 지원. ⚠ 하네스의 LSP 설정 변수 치환 미동작으로 경로 하드코딩 — 설치 후 plugin.json 경로 수정 필요(README)."
+    },
+    {
+      "name": "runbook-author",
+      "source": "./plugins/runbook-author",
+      "description": "한 세션에서 시행착오 끝에 성공한 절차(UI QA·E2E·인프라 조작)를 다음 세션이 재발견 없이 재사용하도록 런북 스킬로 박제하는 저작 방법론. 희소 자산 = 이 환경에서 통과한 구체(성공 코드 원문+실패 변형 병기, 낡는 값 대신 실측 절차, 사고 출처 명시 함정, 날짜 박힌 판정 기준선, 대기 예산). 성공 직후 그 세션이 즉시 작성, 스킬(전문)+메모리 포인터(발견 경로) 2층 구조, 서브에이전트 위임용 복붙 규격, 경배 아닌 검증 상속."
     }
   ]
 }
