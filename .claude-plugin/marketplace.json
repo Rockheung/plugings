@@ -62,7 +62,7 @@
     {
       "name": "tirno",
       "source": "./plugins/tirno",
-      "description": "raw CDP 위의 멀티세션 브라우저 자동화 CLI `tirno` 를 쓰기 위한 스킬 3종. tirno(명령 레퍼런스 — 세션 new/restart/ls/kill/gc, 앵커, nav/click/fill/snapshot/eval, stall/audit/trace/screencast, 캐시·trail) · tirno-runbook(작업 절차 — 조작했다고 됐다 하지 않고 페이지에서 결과를 다시 읽어 확인, 막혔을 때의 진단 순서) · tirno-mcp(chrome-devtools-mcp 45+ tool 을 tirno CLI 로 대체하는 1:1 매핑, 미구현 영역 명시). MCP 는 포트가 아니라 프로필 디렉토리에 물려 Chrome 재기동에도 따라붙게 한다. ⚠ tirno CLI 자체는 별도 설치 필요."
+      "description": "raw CDP 위의 멀티세션 브라우저 자동화 CLI `tirno` 를 쓰기 위한 스킬 3종. tirno(명령 레퍼런스 — 세션 new/restart/ls/kill/gc, 앵커, nav/click/fill/snapshot/eval, stall/audit/trace/screencast, 캐시·trail) · tirno-runbook(작업 절차 — 조작했다고 됐다 하지 않고 페이지에서 결과를 다시 읽어 확인, 막혔을 때의 진단 순서) · tirno-mcp(chrome-devtools-mcp 48 tool 을 tirno CLI 로 대체하는 1:1 매핑, 미구현 영역 명시). MCP 는 포트가 아니라 프로필 디렉토리에 물려 Chrome 재기동에도 따라붙게 한다. `tirno schema` 로 72개 엔드포인트를 effects·destructive 표시와 함께 JSON 으로 받아 실행 전 안전 판정이 가능하다. ⚠ tirno CLI 자체는 별도 설치 필요."
     },
     {
       "name": "runbook-author",
