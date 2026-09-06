@@ -20,6 +20,7 @@
 | **[secrets](./plugins/secrets)** | 비밀값(로그인·API 키)을 memory 평문 대신 **GPG 대칭키로 `~/.secrets/` 에 암호화** 저장하는 스킬 + CLI(`secret-store/get/list`). passphrase 는 사람의 대화형 셸에서만 — 비대화형(Claude Code)에선 pinentry 없이 gpg-agent 캐시(12h)로만 조회. |
 | **[lens](./plugins/lens)** | Claude Code 세션을 들여다보는 **범용 렌즈**. `monitor-session`: 세션/sub-agent jsonl 실시간 stream, `--for "<목적>"`로 그 목적에 맞는 라인만 surface. |
 | **[git-multi-account](./plugins/git-multi-account)** | 한 머신의 여러 git/GitHub 계정 전환을 *제거* — 폴더 위치로 identity·서명·push 인증 자동 라우팅. |
+| **[session-delegation](./plugins/session-delegation)** | 다른 Claude 세션에 일을 맡기고 받는 절차. 주소는 `ListAgents` 의 이름이고 **관측자마다 다르므로** `--remote-control <이름>` 으로 못박는다. herdr 로 조작할 세션은 `--settings '{"tui":"default"}'` 로 — 풀스크린은 alternate screen 이라 `pane read` 가 현재 화면 이상을 못 읽는다. 폴링 금지, 회신은 검증 후 인용. |
 
 ## 철학
 
