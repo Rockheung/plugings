@@ -63,6 +63,11 @@
       "name": "runbook-author",
       "source": "./plugins/runbook-author",
       "description": "한 세션에서 시행착오 끝에 성공한 절차(UI QA·E2E·인프라 조작)를 다음 세션이 재발견 없이 재사용하도록 런북 스킬로 박제하는 저작 방법론. 희소 자산 = 이 환경에서 통과한 구체(성공 코드 원문+실패 변형 병기, 낡는 값 대신 실측 절차, 사고 출처 명시 함정, 날짜 박힌 판정 기준선, 대기 예산). 성공 직후 그 세션이 즉시 작성, 스킬(전문)+메모리 포인터(발견 경로) 2층 구조, 서브에이전트 위임용 복붙 규격, 경배 아닌 검증 상속."
+    },
+    {
+      "name": "session-delegation",
+      "source": "./plugins/session-delegation",
+      "description": "다른 Claude 세션에 일을 맡기고 결과를 받는 절차 — 이미 떠 있는 세션(SendMessage 후 턴 종료, 폴링 금지), herdr 로 새로 띄우는 세션, 다른 머신의 Remote Control 세션이 각각 다른 경로. 주소는 ListAgents 의 이름이고 관측자마다 달라지므로 --remote-control <이름> 으로 못박는다. herdr 로 조작할 세션은 --settings '{\"tui\":\"default\"}' 로 띄운다 — 풀스크린은 alternate screen 이라 pane read 가 현재 화면 이상을 못 읽는다(입력은 되고 읽기만 막혀 증상이 헷갈린다). 세션 교체(RC 끊기 → /exit → pane 재사용), 새 머신 부트스트랩, 회신을 그대로 옮기지 않고 검증하는 절차 포함."
     }
   ]
 }
