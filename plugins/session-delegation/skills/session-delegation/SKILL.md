@@ -60,8 +60,40 @@ herdr pane split --current --direction right --cwd <경로> --no-focus
 
 # 2. 에이전트를 띄운다. 인자에 일감을 넣지 않는다
 herdr agent start <name> --kind claude --pane <pane id> -- \
-  --remote-control <name> --settings '{"tui":"default"}'
+  --remote-control <name> --settings '{"tui":"default"}' --permission-mode auto
+
+# 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
 ```
+
+## 권한 모드는 auto — 거는 길이 둘이다
+
+기본 모드로 뜬 세션은 **첫 권한 프롬프트에서 멈춘다.** 읽기 전용 조회 하나에도 멈추고, 그
+사이 아무 일도 하지 않는다. 더 나쁜 것은 **그 사실이 위임한 쪽에 안 보인다**는 것이다 —
+`SendMessage` 의 `notify_when_idle` 은 blocked 를 알려주지 않는다(아래 "완료를 아는 법").
+사람이 화면을 보고 알려줄 때까지 조용히 서 있는다(실측).
+
+**1. 시작 파라미터 (기본).** `--permission-mode auto` 를 `agent start` 의 `--` 뒤에 준다.
+유효값은 `acceptEdits` · `auto` · `bypassPermissions` · `manual` · `dontAsk` · `plan` 이다.
+
+**2. 뜬 뒤 전환 (대비).** 파라미터가 안 먹었거나(옛 claude, 값 거부) 이미 떠 있는 세션이면
+`shift+tab` 이 모드를 순환시킨다. **순서를 가정하지 말고 상태줄을 읽어 확인한다** — 실측에서
+`accept edits → plan → auto` 였지만 그 순서가 보장된다는 근거는 없다.
+
+```sh
+for i in 1 2 3 4; do
+  m=$(herdr pane read <pane id> --lines 4 | tail -1)
+  case "$m" in *"auto mode"*) echo ok; break;; esac
+  herdr pane send-keys <pane id> shift+tab >/dev/null; sleep 1
+done
+```
+
+두 길은 배타가 아니다. 파라미터를 주고도 **떴을 때 상태줄로 확인하는 것이 순서다** — 위
+루프는 이미 auto 면 키를 한 번도 안 보내고 끝난다.
+
+**`--settings` 로 주지 않는다.** 권한 모드는 `permissions` 키 안에 있고, `--settings` 는 키
+단위로 얹히므로 그 머신 `settings.json` 의 `permissions` 가 통째로 갈린다(위 `tui` 절의 주의).
+`--permission-mode` 는 그 세션에만 적용되는 별도 플래그라 설정 파일을 건드리지 않고,
+`shift+tab` 도 그 세션의 UI 상태만 바꾼다.
 
 ## 띄울 때는 항상 `--settings '{"tui":"default"}'`
 
@@ -142,6 +174,28 @@ ssh <host> 'setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 <
 
 내가 ssh 로 붙어 있는 원격 pane 이면 `herdr agent prompt <name> "..." --wait` 로 동기적으로
 시키고 `pane read` 로 읽는 방법도 있다.
+
+### `notify_when_idle` 은 blocked 를 알려주지 않는다
+
+승인 프롬프트에서 멈춘 세션은 idle 도 아니고 완료도 아니라, 그 알림이 오지 않는다. 위임한
+쪽에서 보면 **일하는 중과 구분되지 않는다.** 실측에서 조사를 맡긴 세션이 읽기 전용 명령
+하나의 승인 대기로 멈춰 있었는데, 사람이 화면을 보고 알려줄 때까지 몰랐다.
+
+herdr 은 그 상태를 `blocked` 로 분류하니(승인·질문 UI 를 인식한다) 감시는 herdr 로 건다.
+`SendMessage` 경로를 쓰더라도 이건 따로 걸어야 한다.
+
+```sh
+herdr agent wait <name> --until blocked --timeout 120000
+```
+
+**auto mode 와 별개로 항상 건다.** auto 는 권한 프롬프트를 줄이는 것이지 없애는 것이 아니다 —
+모델이 던지는 질문, 계획 승인, auto 가 자동으로 답하지 않는 종류의 확인은 그대로 남는다.
+"auto 로 띄웠으니 안 멈춘다" 고 보고 감시를 빼면, 멈춘 세션을 다시 못 보게 된다.
+
+- `blocked` 로 돌아오면 `agent read` 로 **무엇을 묻는지 먼저 본다.** 내용을 안 보고 답을
+  보내지 않는다 — 그 세션이 내 권한 밖의 일을 승인받으려는 것일 수 있다(아래 "권한 세탁 금지")
+- `agent prompt` 는 blocked 인 에이전트에 입력을 보내지 않고 `agent_blocked` 로 거부한다.
+  그 거부를 우회해 `pane send-keys` 로 눌러 넘기지 않는다
 
 ## 병렬로 나눌 때
 
