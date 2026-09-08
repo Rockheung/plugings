@@ -68,6 +68,11 @@
       "name": "session-delegation",
       "source": "./plugins/session-delegation",
       "description": "다른 Claude 세션에 일을 맡기고 결과를 받는 절차 — 이미 떠 있는 세션(SendMessage 후 턴 종료, 폴링 금지), herdr 로 새로 띄우는 세션, 다른 머신의 Remote Control 세션이 각각 다른 경로. 주소는 ListAgents 의 이름이고 관측자마다 달라지므로 --remote-control <이름> 으로 못박는다. herdr 로 조작할 세션은 --settings '{\"tui\":\"default\"}' 로 띄운다 — 풀스크린은 alternate screen 이라 pane read 가 현재 화면 이상을 못 읽는다(입력은 되고 읽기만 막혀 증상이 헷갈린다). 세션 교체(RC 끊기 → /exit → pane 재사용), 새 머신 부트스트랩, 회신을 그대로 옮기지 않고 검증하는 절차 포함."
+    },
+    {
+      "name": "claude-cli-spec",
+      "source": "./plugins/claude-cli-spec",
+      "description": "세션 시작마다 claude CLI 의 명령 이름 트리(409B · 18줄 · 명령 54개)를 컨텍스트에 주입. 놓치는 건 옵션 상세가 아니라 \"그 명령이 존재한다\"는 사실이므로(claude plugin update 를 몰라 install 만 반복한 사례) 이름만 담는다 — 옵션까지면 34KB. claude 는 commander.js 라 스키마 덤프가 없어 --help 를 파싱하며, 판별은 Usage 첫 줄의 경로 에코 하나로 끝난다. claude --version 을 키로 ~/.cache 캐시 — 평소 ~35ms 파일 읽기 한 번, 버전이 바뀔 때만 ~1.5s 재파싱이라 낡지 않는다. 훅 deadline 초과 시 조용히 무출력(세션 시작을 막지 않음). 함정 4개(없는 명령의 --help 가 조상 도움말로 폴백 / 소제목이 이름 자리 / 이름과 [options] 사이 한 칸 / 설명 속 예시 블록 조기 종료)를 박제한 도움말 fixtures 테스트와 깊이별 빠짐·잉여 전수 대조 검증 포함."
     }
   ]
 }

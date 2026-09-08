@@ -1,0 +1,11 @@
+{
+  "name": "claude-cli-spec",
+  "version": "1.0.0",
+  "description": "세션 시작마다 claude CLI 의 명령 이름 트리(~0.4KB)를 컨텍스트에 넣어, 존재하는 명령을 모르고 지나치는 일을 없앤다. --help 를 파싱해 claude --version 키로 캐시 — 평소엔 파일 읽기 한 번이고 CLI 가 갱신되면 자동 갱신된다.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "Internal",
+  "hooks": "./hooks/hooks.json"
+}
