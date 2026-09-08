@@ -6,6 +6,5 @@
   "author": {
     "name": "Rockheung"
   },
-  "license": "Internal",
-  "hooks": "./hooks/hooks.json"
+  "license": "Internal"
 }
