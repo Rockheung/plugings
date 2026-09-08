@@ -1,0 +1,18 @@
+{
+  "description": "세션 시작마다 claude CLI 의 명령 이름 트리를 컨텍스트에 넣는다. claude --version 을 키로 캐시하므로 평소엔 파일 읽기 한 번이고, CLI 가 갱신되면 자동으로 다시 뜬다.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/inject.mjs\"",
+            "timeout": 5,
+            "statusMessage": "claude CLI 명령 트리 적재"
+          }
+        ]
+      }
+    ]
+  }
+}

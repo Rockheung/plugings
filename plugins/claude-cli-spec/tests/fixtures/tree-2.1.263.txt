@@ -1,0 +1,18 @@
+agents
+attach
+auth: login logout status
+auto-mode: config critique defaults reset
+doctor
+gateway
+import
+install
+logs
+mcp: add add-from-claude-desktop add-json get list login logout remove reset-project-choices serve
+plugin: details disable enable eval(init) init install list marketplace(add list remove update) prune tag uninstall update validate
+project: purge
+respawn
+rm
+setup-token
+stop
+ultrareview
+update
