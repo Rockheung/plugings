@@ -116,8 +116,8 @@ herdr pane split --current --direction right --cwd <경로> --no-focus
 
 # 2. 에이전트를 띄운다. 인자에 일감을 넣지 않는다
 herdr agent start <name> --kind claude --pane <pane id> -- \
-  --remote-control <name> --settings '{"tui":"default"}' --permission-mode auto \
-  --prompt-suggestions false
+  --remote-control <name> --settings '{"tui":"default","spinnerTipsEnabled":false}' \
+  --permission-mode auto --prompt-suggestions false
 
 # 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
 ```
@@ -189,13 +189,38 @@ herdr 로 조작할 세션은 항상 끈다. 사람이 직접 붙어 쓰는 세�
 **화면 텍스트로 상대의 상태를 판정하지 않는다.** 끄더라도 원칙은 남는다 — 상대가 무엇을
 했는지는 그 결과를 직접 조회해서 본다(브라우저면 브라우저, 파일이면 파일). 화면은 그 다음이다.
 
+## `spinnerTipsEnabled: false` — 스피너 팁도 끈다
+
+작업이 길어지면 스피너 아래에 팁 한 줄이 붙는다.
+
+```
+⎿  Tip: Continue your session in Claude Code Desktop with …
+```
+
+`pane read` 로는 이것도 그냥 텍스트라 위 `--prompt-suggestions` 절과 같은 오독을 부른다.
+`--settings` 의 `tui` 옆에 함께 넣는다.
+
+실측으로 갈랐다 — 같은 pane 에서 같은 작업(스펙 JSON 을 읽고 세는 일, 14초·15초)을 돌리고
+설정 하나만 달리했다.
+
+| | 결과 |
+|---|---|
+| 설정 없음 | `⎿  Tip: Continue your session in Claude Code Desktop with …` |
+| `spinnerTipsEnabled: false` | 팁 줄 없음 — 스피너만 |
+
+**팁이 뜨려면 턴이 충분히 길어야 한다.** 1초짜리 작업으로는 대조군에서도 재현되지 않으므로,
+이 설정을 검증할 때는 십수 초 걸리는 일을 시켜야 한다.
+
+`~/.claude.json` 의 `tipLifetimeShownCounts` 로 누적 표시 횟수를 볼 수 있으나 전역 카운터라
+어느 세션이 늘렸는지 갈리지 않는다 — 판정 근거로 쓰지 않는다.
+
 ## 다른 머신에 맡기기
 
 그 세션이 Remote Control 로 떠 있어야 `ListAgents` 에 잡힌다. 기본은 꺼져 있다.
 
 ```sh
 ssh <host> "herdr agent start <name> --kind claude --pane <id> -- \
-  --remote-control <name> --settings '{\"tui\":\"default\"}' --prompt-suggestions false"
+  --remote-control <name> --settings '{\"tui\":\"default\",\"spinnerTipsEnabled\":false}' --prompt-suggestions false"
 ```
 
 도는 세션에도 `/remote-control` 로 나중에 붙일 수 있다. 다만 그렇게 켜면 이름을 못 정해서
