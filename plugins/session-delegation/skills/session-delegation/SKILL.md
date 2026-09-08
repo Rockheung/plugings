@@ -116,7 +116,8 @@ herdr pane split --current --direction right --cwd <경로> --no-focus
 
 # 2. 에이전트를 띄운다. 인자에 일감을 넣지 않는다
 herdr agent start <name> --kind claude --pane <pane id> -- \
-  --remote-control <name> --settings '{"tui":"default"}' --permission-mode auto
+  --remote-control <name> --settings '{"tui":"default"}' --permission-mode auto \
+  --prompt-suggestions false
 
 # 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
 ```
@@ -165,13 +166,36 @@ done
 - 머신의 `~/.claude/settings.json` 은 건드리지 않는다. 사람이 직접 붙어 쓸 때는 풀스크린이
   낫다. 끄는 건 herdr 로 조작할 세션에 한정한다.
 
+## `--prompt-suggestions false` — 화면을 읽어 판단한다면 끈다
+
+Claude Code 는 턴이 끝나면 **다음에 사용자가 칠 법한 문장을 입력란에 미리 띄운다.** 사람이
+보기엔 흐린 제안이지만 `pane read` 로 뜬 텍스트에는 그 구분이 없다. 그래서 위임한 쪽이
+화면을 읽으면 **사람이 실제로 친 입력과 똑같이 보인다.**
+
+실측에서 이것이 두 가지를 동시에 망가뜨렸다.
+
+- 제안 문구(`로그인했어, 이어서 진행해`)를 사용자 입력으로 읽고 "로그인이 끝났다" 고 판정했다.
+  브라우저를 실제로 조회하니 로그인 화면 그대로였다
+- 그 텍스트가 입력란에 있다고 믿고 보낸 `/exit` 가 그 뒤에 붙어 명령으로 인식되지 않았다.
+  세션은 죽지 않았는데 herdr 의 이름 등록만 풀려 `agent list` 가 비었다
+
+```sh
+--prompt-suggestions false   # 값은 true|false|1|0|yes|no|on|off
+```
+
+herdr 로 조작할 세션은 항상 끈다. 사람이 직접 붙어 쓰는 세션에서는 켜 두는 편이 낫다 —
+끄는 것은 `--settings '{"tui":"default"}'` 와 같은 이유이고 같은 범위다.
+
+**화면 텍스트로 상대의 상태를 판정하지 않는다.** 끄더라도 원칙은 남는다 — 상대가 무엇을
+했는지는 그 결과를 직접 조회해서 본다(브라우저면 브라우저, 파일이면 파일). 화면은 그 다음이다.
+
 ## 다른 머신에 맡기기
 
 그 세션이 Remote Control 로 떠 있어야 `ListAgents` 에 잡힌다. 기본은 꺼져 있다.
 
 ```sh
 ssh <host> "herdr agent start <name> --kind claude --pane <id> -- \
-  --remote-control <name> --settings '{\"tui\":\"default\"}'"
+  --remote-control <name> --settings '{\"tui\":\"default\"}' --prompt-suggestions false"
 ```
 
 도는 세션에도 `/remote-control` 로 나중에 붙일 수 있다. 다만 그렇게 켜면 이름을 못 정해서
