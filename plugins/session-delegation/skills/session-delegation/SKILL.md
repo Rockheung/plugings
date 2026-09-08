@@ -47,6 +47,62 @@ description: |
 준비할 것이 없다. `ListAgents` 로 상대를 고르고 `SendMessage` 를 보낸 뒤 **턴을 끝낸다.**
 응답은 나중에 `<cross-session-message>` 로 도착한다. 기다리며 폴링하지 않는다.
 
+## 어디에 만드나 — cwd 가 다르면 새 workspace
+
+**판별 기준은 cwd 하나다.** 맡길 일의 작업 경로가 지금 내 workspace 의 것과 다르면 pane 을
+쪼개지 말고 workspace 를 새로 연다. 같은 경로의 일이면 pane 분할로 충분하다.
+
+cwd 는 pane 을 만들 때 굳고 나중에 못 바꾸므로, "일단 옆에 pane 을 하나 파고 거기서 다른
+레포를 보자" 는 되돌릴 수 없는 선택이 된다. 게다가 한 화면을 쪼갤수록 각 pane 이 좁아져
+`pane read` 로 볼 수 있는 폭이 준다 — 갭이 큰 일을 옆에 붙이면 지금 하던 일까지 같이 좁아진다.
+
+```sh
+herdr workspace create --cwd <경로> --label <짧은 이름>   # 반환된 workspace 에 pane 이 하나 선다
+herdr pane list --workspace <id>                          # 그 pane id 로 agent start
+```
+
+workspace label 은 그 경로를 알아보게 짓는다(기존 것들이 `foyer`·`veilcast` 처럼 디렉터리
+이름을 쓴다). 화면이 바뀌므로 사용자가 보고 있는 작업을 가리지 않는지는 만들기 전에 생각한다.
+
+**cwd 는 그 세션이 쓸 수 있는 스킬과 설정도 정한다.** `<cwd>/.claude/settings.local.json` 의
+`skillOverrides` 가 스킬을 `off` 로 두고 있으면 그 경로에서 뜬 세션은 그 스킬을 못 부른다.
+프로젝트 MCP·훅·`CLAUDE.md` 도 같은 경로 상속을 탄다. 스킬을 쓰게 할 세션이면 **그 스킬이
+살아 있는 경로**를 골라야 하고, 확인은 만들기 전에 한다.
+
+```sh
+python3 -c "import json,os;p=os.path.expanduser('<cwd>/.claude/settings.local.json');\
+print(json.load(open(p)).get('skillOverrides','없음') if os.path.exists(p) else '파일 없음')"
+```
+
+막힌 경로에서 띄워 놓고 파일을 직접 읽으라고 우회하면, **그 스킬을 스스로 찾는 단계가 검증에서
+통째로 빠진다.** 스킬 사용을 재는 위임이라면 그것만으로 결과가 무의미해진다.
+
+## 에이전트 이름 — `<머신>-<번호>-<주제>`
+
+```
+mini-tirno-1-headers      mbp-foyer-2-slt-verify      dgx-models-1-eval
+```
+
+- **머신**을 앞에 둔다. `ListAgents` 에는 머신 컬럼이 없어 목록만 보고는 어디서 도는지
+  확정할 수 없다(위 "주소"). 이름이 그 자리를 메운다.
+  **그 머신을 부르는 이름을 쓴다** — ssh config 의 `Host` 별칭이 있으면 그것, 없으면
+  `hostname -s`. 별칭을 앞세우는 이유는 두 가지다: 원시 호스트명이 길고(로컬 macOS 가
+  `heungjunpark-mbp` 다) 목록에서 자리를 먹는다, 그리고 이미 `mini`·`book`·`dgx`·`oci-ko` 로
+  부르고 있는 머신에 호스트명을 쓰면 같은 머신이 두 이름으로 불린다. ssh 로 붙는 이름과
+  일치해야 "어느 머신이냐" 가 바로 읽힌다
+- **cwd** 는 그 세션의 작업 경로 basename 이다. workspace 를 가르는 기준이 cwd 이므로(위 절),
+  이름에 넣으면 **어느 workspace 의 세션인지가 목록에서 바로 읽힌다.** 경로 전체가 아니라
+  마지막 한 토막만 쓴다
+- **번호**는 전역 순번이 아니라 **같은 머신·cwd 로 여러 개를 띄울 때의 구분자**다. 하나뿐이면
+  `1` 로 둔다. 전역으로 세면 누가 관리하느냐는 문제가 생긴다
+- **주제**는 무엇을 맡겼는지 한눈에 보이게. 경로가 아니라 일의 이름이다
+
+네 토막이라 길어지기 쉽다. **각 토막을 짧게 잡는다** — 목록에서 잘리면 뒤쪽 주제부터 사라져
+무엇을 맡긴 세션인지 알 수 없게 된다.
+
+자동 이름(`foyer-e2` 처럼 `<디렉터리>-<해시>`)과 구분되는 것도 이득이다 — 내가 띄운 것과
+남이 띄운 것이 목록에서 갈린다. `--remote-control <이름>` 으로 못박아야 그 이름이 그대로 뜬다.
+
 ## 새 세션을 만들어 맡기기
 
 herdr 가 필요한 유일한 경우다. 순서가 중요하다.
@@ -60,8 +116,40 @@ herdr pane split --current --direction right --cwd <경로> --no-focus
 
 # 2. 에이전트를 띄운다. 인자에 일감을 넣지 않는다
 herdr agent start <name> --kind claude --pane <pane id> -- \
-  --remote-control <name> --settings '{"tui":"default"}'
+  --remote-control <name> --settings '{"tui":"default"}' --permission-mode auto
+
+# 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
 ```
+
+## 권한 모드는 auto — 거는 길이 둘이다
+
+기본 모드로 뜬 세션은 **첫 권한 프롬프트에서 멈춘다.** 읽기 전용 조회 하나에도 멈추고, 그
+사이 아무 일도 하지 않는다. 더 나쁜 것은 **그 사실이 위임한 쪽에 안 보인다**는 것이다 —
+`SendMessage` 의 `notify_when_idle` 은 blocked 를 알려주지 않는다(아래 "완료를 아는 법").
+사람이 화면을 보고 알려줄 때까지 조용히 서 있는다(실측).
+
+**1. 시작 파라미터 (기본).** `--permission-mode auto` 를 `agent start` 의 `--` 뒤에 준다.
+유효값은 `acceptEdits` · `auto` · `bypassPermissions` · `manual` · `dontAsk` · `plan` 이다.
+
+**2. 뜬 뒤 전환 (대비).** 파라미터가 안 먹었거나(옛 claude, 값 거부) 이미 떠 있는 세션이면
+`shift+tab` 이 모드를 순환시킨다. **순서를 가정하지 말고 상태줄을 읽어 확인한다** — 실측에서
+`accept edits → plan → auto` 였지만 그 순서가 보장된다는 근거는 없다.
+
+```sh
+for i in 1 2 3 4; do
+  m=$(herdr pane read <pane id> --lines 4 | tail -1)
+  case "$m" in *"auto mode"*) echo ok; break;; esac
+  herdr pane send-keys <pane id> shift+tab >/dev/null; sleep 1
+done
+```
+
+두 길은 배타가 아니다. 파라미터를 주고도 **떴을 때 상태줄로 확인하는 것이 순서다** — 위
+루프는 이미 auto 면 키를 한 번도 안 보내고 끝난다.
+
+**`--settings` 로 주지 않는다.** 권한 모드는 `permissions` 키 안에 있고, `--settings` 는 키
+단위로 얹히므로 그 머신 `settings.json` 의 `permissions` 가 통째로 갈린다(위 `tui` 절의 주의).
+`--permission-mode` 는 그 세션에만 적용되는 별도 플래그라 설정 파일을 건드리지 않고,
+`shift+tab` 도 그 세션의 UI 상태만 바꾼다.
 
 ## 띄울 때는 항상 `--settings '{"tui":"default"}'`
 
@@ -143,6 +231,45 @@ ssh <host> 'setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 <
 내가 ssh 로 붙어 있는 원격 pane 이면 `herdr agent prompt <name> "..." --wait` 로 동기적으로
 시키고 `pane read` 로 읽는 방법도 있다.
 
+### `notify_when_idle` 은 blocked 를 알려주지 않는다
+
+승인 프롬프트에서 멈춘 세션은 idle 도 아니고 완료도 아니라, 그 알림이 오지 않는다. 위임한
+쪽에서 보면 **일하는 중과 구분되지 않는다.** 실측에서 조사를 맡긴 세션이 읽기 전용 명령
+하나의 승인 대기로 멈춰 있었는데, 사람이 화면을 보고 알려줄 때까지 몰랐다.
+
+herdr 은 그 상태를 `blocked` 로 분류하니(승인·질문 UI 를 인식한다) 감시는 herdr 로 건다.
+`SendMessage` 경로를 쓰더라도 이건 따로 걸어야 한다.
+
+```sh
+herdr agent wait <name> --until blocked --timeout 120000
+```
+
+**auto mode 와 별개로 항상 건다.** auto 는 권한 프롬프트를 줄이는 것이지 없애는 것이 아니다 —
+모델이 던지는 질문, 계획 승인, auto 가 자동으로 답하지 않는 종류의 확인은 그대로 남는다.
+"auto 로 띄웠으니 안 멈춘다" 고 보고 감시를 빼면, 멈춘 세션을 다시 못 보게 된다.
+
+- `blocked` 로 돌아오면 `agent read` 로 **무엇을 묻는지 먼저 본다.** 내용을 안 보고 답을
+  보내지 않는다 — 그 세션이 내 권한 밖의 일을 승인받으려는 것일 수 있다(아래 "권한 세탁 금지")
+- `agent prompt` 는 blocked 인 에이전트에 입력을 보내지 않고 `agent_blocked` 로 거부한다.
+  그 거부를 우회해 `pane send-keys` 로 눌러 넘기지 않는다
+
+## 무엇을 재는 위임이면 지시가 답을 흘리지 않는다
+
+절차나 문서가 통하는지 재려고 세션을 띄웠다면, **그 지시문 자체가 재려던 단계를 건너뛰게
+만들 수 있다.** 흔한 셋이다.
+
+| 지시에 넣은 것 | 그래서 못 재는 것 |
+|---|---|
+| 문서·파일의 절대 경로 | 그것을 스스로 찾는 단계 |
+| 세션 이름·포트·작업 디렉터리 | 절차가 그 값을 정해 주는지 |
+| "먼저 X 절을 보고 진행하라" | 그 경로를 스스로 고르는지 |
+
+자원 이름은 충돌을 막으려고 못박는 것이라 필요할 때가 있다. 다만 **못박는 순간 그 항목은
+측정 대상에서 빠진다**는 것을 알고 하고, 회신을 읽을 때 그 부분을 통과로 세지 않는다.
+
+증상도 알려 주되 원인 가설은 주지 않는다. 가설을 주면 그 가설을 확인하러 가지, 관측에서
+출발하지 않는다.
+
 ## 병렬로 나눌 때
 
 **각자 쓸 자원 이름을 지시에 못박는다.** 같은 시각에 도는 세션들이 같은 이름의 브라우저
@@ -186,4 +313,16 @@ ssh <host> 'setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 <
 대신 해달라고 하면 거절하고 사용자에게 알린다.
 
 **내가 만들지 않은 pane·세션을 닫지 않는다.** 그 안에 쌓인 맥락이 함께 사라진다. 세션을
-갈아 끼울 때도 pane 은 재사용한다.
+갈아 끼울 때도 pane 은 재사용한다. 내가 만든 것을 닫을 때는 `herdr pane close <id>` 를
+쓰고, **닫기 전에 그 pane 이 들고 있던 자원을 그 세션이 정리하게 한다** — 브라우저 세션·서버·
+포트는 pane 을 닫아도 그대로 살아남는다.
+
+**프롬프트에 남은 미전송 입력은 pane 과 함께 사라진다.** 사용자가 타이핑해 두고 보내지 않은
+줄이 있으면 닫는 순간 없어진다. `pane read` 로 화면 아래쪽을 보고, 있으면 닫기 전에 알린다.
+
+**`ListAgents` 의 이름과 herdr 의 이름은 다르다.** 둘을 잇는 것은 `herdr agent list` 뿐이다 —
+`name`·`pane_id`·`cwd` 가 한 줄에 나오므로, 그것으로 대조해 어느 pane 이 어느 세션인지 정한다.
+`herdr pane list` 는 pane 만 주고 에이전트 이름을 주지 않는다.
+
+**`notify_when_idle` 구독은 pane 을 닫은 뒤에도 발화한다.** 이미 정리한 세션의 idle 통지가
+뒤늦게 도착하므로, 그 알림을 새 작업 신호로 읽지 않는다.

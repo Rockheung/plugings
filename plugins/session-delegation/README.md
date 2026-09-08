@@ -62,6 +62,13 @@ herdr agent start <name> --kind claude --pane <pane> -- \
 
 `ListAgents` 를 반복해 부르거나 "다 됐어?" 를 보내지 않는다.
 
+**`notify_when_idle` 은 blocked 를 알려주지 않는다.** 승인 프롬프트에서 멈춘 세션은 idle 도
+완료도 아니라 알림이 오지 않고, 위임한 쪽에서는 일하는 중과 구분되지 않는다. 그래서
+`herdr agent wait <name> --until blocked` 를 **항상 병행한다.**
+
+권한 모드는 `--permission-mode auto` 로 띄우고(안 먹었으면 `shift+tab` 순환), 그것과 **별개로**
+위 감시를 건다. auto 는 프롬프트를 줄이는 것이지 없애는 것이 아니다.
+
 ## 회신을 받은 뒤
 
 **그대로 옮기지 않는다.** 검증할 수 있는 주장은 직접 확인한다 — 파일·URL 은 받아서 크기와
