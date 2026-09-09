@@ -21,6 +21,7 @@
 | **[lens](./plugins/lens)** | Claude Code 세션을 들여다보는 **범용 렌즈**. `monitor-session`: 세션/sub-agent jsonl 실시간 stream, `--for "<목적>"`로 그 목적에 맞는 라인만 surface. |
 | **[git-multi-account](./plugins/git-multi-account)** | 한 머신의 여러 git/GitHub 계정 전환을 *제거* — 폴더 위치로 identity·서명·push 인증 자동 라우팅. |
 | **[session-delegation](./plugins/session-delegation)** | 다른 Claude 세션에 일을 맡기고 받는 절차. 주소는 `ListAgents` 의 이름이고 **관측자마다 다르므로** `--remote-control <이름>` 으로 못박는다. herdr 로 조작할 세션은 `--settings '{"tui":"default"}'` 로 — 풀스크린은 alternate screen 이라 `pane read` 가 현재 화면 이상을 못 읽는다. 폴링 금지, 회신은 검증 후 인용. |
+| **[figma-cli](./plugins/figma-cli)** | Figma Dev Mode MCP(`127.0.0.1:3845`)를 셸에서 쓰는 무의존성 CLI(`fig`). 시안 URL 을 그대로 붙여넣으면 컨텍스트·메타데이터·스크린샷·문서 트리·이름 검색이 나온다. **MCP 도구로 부르면 노드 하나가 65KB 씩 대화 컨텍스트로 들어오는 것**이 존재 이유 — 파일로 받아 `grep` 한다. 세션 id 캐시로 왕복 3→1, 만료는 404 보고 자동 재초기화. |
 
 ## 철학
 

@@ -73,6 +73,11 @@
       "name": "claude-cli-spec",
       "source": "./plugins/claude-cli-spec",
       "description": "세션 시작마다 claude CLI 의 명령 이름 트리(409B · 18줄 · 명령 54개)를 컨텍스트에 주입. 놓치는 건 옵션 상세가 아니라 \"그 명령이 존재한다\"는 사실이므로(claude plugin update 를 몰라 install 만 반복한 사례) 이름만 담는다 — 옵션까지면 34KB. claude 는 commander.js 라 스키마 덤프가 없어 --help 를 파싱하며, 판별은 Usage 첫 줄의 경로 에코 하나로 끝난다. claude --version 을 키로 ~/.cache 캐시 — 평소 ~35ms 파일 읽기 한 번, 버전이 바뀔 때만 ~1.5s 재파싱이라 낡지 않는다. 훅 deadline 초과 시 조용히 무출력(세션 시작을 막지 않음). 함정 4개(없는 명령의 --help 가 조상 도움말로 폴백 / 소제목이 이름 자리 / 이름과 [options] 사이 한 칸 / 설명 속 예시 블록 조기 종료)를 박제한 도움말 fixtures 테스트와 깊이별 빠짐·잉여 전수 대조 검증 포함."
+    },
+    {
+      "name": "figma-cli",
+      "source": "./plugins/figma-cli",
+      "description": "Figma 데스크톱 앱의 Dev Mode MCP 서버(127.0.0.1:3845)를 셸에서 쓰는 무의존성 CLI(`fig`) + 스킬. MCP 도구로 직접 부르면 get_design_context 한 노드가 65KB 씩 대화 컨텍스트로 들어오는데, 파일로 받아 grep 하면 필요한 줄만 본다. Figma URL 을 그대로 붙여넣으면 node-id 를 뽑고, 세션 id 를 캐시해 호출당 왕복 3회를 1회로 줄이며(만료는 404 를 보고 자동 재초기화), get_metadata 의 XML 을 파싱해 문서 트리 요약(tree)과 이름 검색(find, 조상 경로 포함)을 낸다. 스크린샷은 base64 를 풀어 png 로 저장한다. 도구 10개 전부 `fig call` 로 도달 가능. Figma 앱이 꺼져 있으면 켜는 방법을 안내한다."
     }
   ]
 }
