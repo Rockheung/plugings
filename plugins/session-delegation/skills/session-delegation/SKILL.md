@@ -384,15 +384,92 @@ PATH 를 다시 만드는 머신)에서 `--env FOO=bar` 는 그대로 도착했�
 
 ## 완료를 아는 법
 
-| 대상 | 방법 |
+| 상대 | 방법 |
 |---|---|
-| 같은 머신 | `SendMessage` 에 `notify_when_idle: true`. 한 번만 오고 폴링이 아니다 |
-| 다른 머신 | 이 옵션이 없다. 상대의 회신을 기다린다 |
+| **내가 띄운 일꾼** (로컬·원격 무관) | 배경으로 `agent prompt --wait`. 정착하면 그 명령이 끝나며 나를 깨운다 — `blocked` 도 깨움이다 |
+| 이미 떠 있는 남의 세션 (같은 머신) | `SendMessage` 에 `notify_when_idle: true`. 한 번만 오고 폴링이 아니다. **blocked 는 안 온다** |
+| 이미 떠 있는 남의 세션 (다른 머신) | 옵션이 없다. 상대의 회신을 기다린다 |
 
 **폴링하지 않는다.** `ListAgents` 를 반복해 부르거나 "다 됐어?" 를 보내지 않는다.
 
-내가 ssh 로 붙어 있는 원격 pane 이면 `herdr agent prompt <name> "..." --wait` 로 동기적으로
-시키고 `pane read` 로 읽는 방법도 있다.
+### 맡기고 턴을 끝낸다 — 배경 wait 가 나를 깨운다
+
+`agent prompt --wait` 를 **포그라운드로 부르면 그 시간 내내 내가 서 있어야 한다.** 20분짜리를
+맡기면 20분을 잡는다. 배경으로 돌리면(Bash `run_in_background`) 그 명령이 끝날 때 하네스가
+나를 다시 부르므로, 나는 턴을 끝내고 다른 일을 한다.
+
+```sh
+herdr agent prompt <name> "<일감>. 결과는 <경로>에 마크다운으로 쓰고 나에게는 경로만 답하라." \
+  --wait --timeout 1800000
+```
+
+`prompt` 와 `wait` 를 나누지 않는 이유는 아래 절과 같다 — 한 번에 부른다. 깨어나면
+**반환된 `agent_status` 를 먼저 본다.**
+
+| 깨어나서 본 것 | 할 일 |
+|---|---|
+| `idle` · `done` | 약속한 파일을 회수해 검증한다 |
+| `blocked` | 무엇을 묻는지 읽고 답한 뒤 **다시 장전한다**(아래) |
+| `timeout` · `agent_prompt_stalled` | 그것도 깨움이다. `agent get` 으로 실제 상태부터 본다 |
+
+실측(2026-09-10, herdr 0.9.0 · claude 2.1.267): 12초짜리 일에 배경 `--wait` 를 걸고 턴을
+끝냈더니 `exit 0` 과 `"agent_status":"idle"` 로 다시 불려왔다. 이어서 질문을 던지게 시킨
+회차에는 `"agent_status":"blocked"` 로 깨어났다. 결과는 화면이 아니라 상대가 쓴 파일에서
+회수했다(822바이트, 내용 직접 확인).
+
+### blocked 는 깨어나서 처리한다 — 장전을 빼먹지 않는다
+
+깨어난 상태가 `blocked` 면 **묻는 것을 먼저 읽는다.** 내용을 안 보고 답하지 않는다 — 그
+세션이 내 권한 밖의 일을 승인받으려는 것일 수 있다(아래 "권한 세탁 금지").
+
+```sh
+herdr agent explain <name>                                    # 어떤 규칙·근거로 blocked 인지
+herdr agent read <name> --source recent-unwrapped --lines 40  # 무엇을 묻는지 전문
+```
+
+실측에서 `explain` 이 `rule: live_blocked_form` 과 근거
+`"Enter to select · ↑/↓ to navigate · Esc to cancel"` 를 줬다. 선택 UI 라는 뜻이므로 답은
+키로 넣는다. `agent prompt` 는 blocked 인 에이전트를 `agent_blocked` 로 거부한다.
+
+```sh
+herdr agent send-keys <name> down enter   # 커서를 옮겨 고른다 — 커서 위치는 read 로 확인한 뒤
+herdr agent send-keys <name> esc          # 취소. 상대는 그 도구가 취소된 것으로 받는다
+```
+
+답한 뒤 **배경 wait 를 다시 장전한다.** 이걸 빼먹으면 다음 blocked 를 다시 못 본다.
+
+```sh
+herdr agent wait <name> --timeout 1800000   # 배경으로. idle·done·blocked 어디서든 깬다
+```
+
+`--until blocked` 로 좁히지 않는다 — 그러면 끝난 것을 못 받는다. 좁히는 것은 "이미 도는
+남의 에이전트가 멈추는지만 본다" 처럼 완료가 내 관심사가 아닐 때뿐이다.
+
+`agent_blocked` 거부를 **프롬프트 텍스트를 밀어 넣는 쪽으로 우회하지 않는다.** 그 UI 가
+받는 것은 키다. 답을 키로 넣는 것과, 거부당한 프롬프트를 `pane send-text` 로 욱여넣는 것은
+다른 일이다.
+
+장전이 **즉시 돌아올 수 있다** — 이미 정착한 상태면 그 자리에서 끝난다. 그건 놓친 것이
+아니라 한 번 더 확인하라는 신호다. 상태를 보고, 아직 할 일이 남았으면 다시 건다.
+
+내가 ssh 로 붙어 있는 원격 pane 도 같은 절차다. RC 도 브리지도 필요 없다.
+
+### 내가 못 깨어날 때를 위한 백스톱
+
+`askUserQuestionTimeout` 을 주면 답 없는 `AskUserQuestion` 대화상자가 유휴 시간 뒤 **이미
+선택돼 있던 항목으로 스스로 진행한다.** 값은 `"60s"`·`"5m"`·`"10m"`·`"never"` 뿐이고 기본은
+`"never"` — 즉 기본은 무한 대기다.
+
+```sh
+--settings '{"tui":"default","spinnerTipsEnabled":false,"promptSuggestionEnabled":false,"askUserQuestionTimeout":"10m"}'
+```
+
+**깨어나서 답하는 루프를 대신하지 않는다.** 자동 진행은 기본 선택지를 고르는 것이라, 내가
+내렸어야 할 판단을 상대가 조용히 정해 버린다. 내 루프가 먼저 이기도록 길게 잡고, 그래도
+아무도 안 왔을 때만 도는 안전장치로 쓴다.
+
+**권한 승인 대화상자는 이걸로 안 풀린다.** 이 설정은 `AskUserQuestion` 에만 걸린다 —
+승인 프롬프트는 그대로 서 있으므로 auto 모드와 위 감시가 여전히 답이다.
 
 ### `notify_when_idle` 은 blocked 를 알려주지 않는다
 
@@ -400,26 +477,12 @@ PATH 를 다시 만드는 머신)에서 `--env FOO=bar` 는 그대로 도착했�
 쪽에서 보면 **일하는 중과 구분되지 않는다.** 실측에서 조사를 맡긴 세션이 읽기 전용 명령
 하나의 승인 대기로 멈춰 있었는데, 사람이 화면을 보고 알려줄 때까지 몰랐다.
 
-herdr 은 그 상태를 `blocked` 로 분류하니(승인·질문 UI 를 인식한다) 감시는 herdr 로 건다.
-`SendMessage` 경로를 쓰더라도 이건 따로 걸어야 한다.
-
-```sh
-herdr agent wait <name> --timeout 120000                    # idle·done·blocked 어느 쪽이든
-herdr agent wait <name> --until blocked --timeout 120000    # 멈춤만 잡을 때
-```
-
-`--until` 을 안 주면 정착 상태(`idle`·`done`·`blocked`) 어디서든 돌아오고, 어느 상태였는지는
-반환값이 말해 준다. `notify_when_idle` 이 없는 다른 머신에서는 **이쪽 하나로 완료와 멈춤을
-같이 받는다** — `--until blocked` 만 걸어 두면 끝난 것을 못 받는다.
+herdr 은 그 상태를 `blocked` 로 분류한다(승인·질문 UI 를 인식한다). **브리지로 맡겼더라도
+감시는 herdr 로 따로 건다** — 위 "맡기고 턴을 끝낸다" 의 배경 wait 가 그 자리다.
 
 **auto mode 와 별개로 항상 건다.** auto 는 권한 프롬프트를 줄이는 것이지 없애는 것이 아니다 —
 모델이 던지는 질문, 계획 승인, auto 가 자동으로 답하지 않는 종류의 확인은 그대로 남는다.
 "auto 로 띄웠으니 안 멈춘다" 고 보고 감시를 빼면, 멈춘 세션을 다시 못 보게 된다.
-
-- `blocked` 로 돌아오면 `agent read` 로 **무엇을 묻는지 먼저 본다.** 내용을 안 보고 답을
-  보내지 않는다 — 그 세션이 내 권한 밖의 일을 승인받으려는 것일 수 있다(아래 "권한 세탁 금지")
-- `agent prompt` 는 blocked 인 에이전트에 입력을 보내지 않고 `agent_blocked` 로 거부한다.
-  그 거부를 우회해 `pane send-keys` 로 눌러 넘기지 않는다
 
 ### `prompt` 와 `wait` 를 나눠 부르지 않는다
 
