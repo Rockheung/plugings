@@ -3,6 +3,7 @@
   "owner": {
     "name": "Rockheung"
   },
+  "description": "Rockheung 이 실제로 쓰는 Claude Code 플러그인 모음. 추측 금지·실측만 — 설정·CLI·세션 상태를 LLM 기억으로 짐작하지 않고 읽기전용 스크립트가 실측한 값만 쓴다. 세션 위임, 설정 지형도, 권한 게이트, 자기교정, 코드베이스 학습, 비밀값 암호화, MCP 번들 등.",
   "plugins": [
     {
       "name": "config-map",

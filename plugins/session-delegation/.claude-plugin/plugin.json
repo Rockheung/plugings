@@ -1,6 +1,7 @@
 {
   "name": "session-delegation",
   "description": "다른 Claude 세션에 일을 맡기고 결과를 받는 절차. 이미 떠 있는 세션(SendMessage 후 턴 종료, 폴링 금지), herdr 로 새로 띄우는 세션, 다른 머신의 Remote Control 세션이 각각 다른 경로를 탄다. 핵심 계약 둘: 주소는 ListAgents 가 보여주는 이름이고 그 이름은 관측자마다 다르므로 --remote-control <이름> 으로 못박는다. 그리고 herdr 로 조작할 세션은 --settings '{\"tui\":\"default\"}' 로 띄운다 — 풀스크린 렌더러는 alternate screen 에 그려 pane read 가 현재 화면 이상을 못 읽는다. 권한 모드는 --permission-mode auto 로 띄우고 뜬 뒤 상태줄로 확인해 아니면 shift+tab 으로 돌린다 — 기본 모드 세션은 첫 권한 프롬프트에서 멈추는데 notify_when_idle 이 blocked 를 알려주지 않아 위임한 쪽에서는 일하는 중과 구분되지 않는다. auto 는 프롬프트를 줄일 뿐 없애지 않으므로 herdr agent wait --until blocked 감시를 그것과 별개로 항상 병행한다. 세션 교체(RC 끊기 → /exit → pane 재사용), 새 머신 부트스트랩(herdr 헤드리스 기동·claude 네이티브 설치·.bashrc PATH), 회신을 그대로 옮기지 않고 검증하는 절차 포함.",
+  "version": "1.0.0",
   "homepage": "https://github.com/Rockheung/plugings",
   "author": {
     "name": "Rockheung"
