@@ -1,6 +1,7 @@
 {
   "name": "figma-cli",
   "description": "Figma 데스크톱 앱의 Dev Mode MCP 서버(127.0.0.1:3845)를 셸에서 쓰는 무의존성 CLI(`fig`) + 스킬. MCP 도구로 직접 부르면 get_design_context 한 노드가 65KB 씩 대화 컨텍스트로 들어오는데, 파일로 받아 grep 하면 필요한 줄만 본다. Figma URL 을 그대로 붙여넣으면 node-id 를 뽑고, 세션 id 를 캐시해 호출당 왕복 3회를 1회로 줄이며(만료는 404 를 보고 자동 재초기화), get_metadata 의 XML 을 파싱해 문서 트리 요약(tree)과 이름 검색(find, 조상 경로 포함)을 낸다. 스크린샷은 base64 를 풀어 png 로 저장한다. 도구 10개 전부 `fig call` 로 도달 가능. Figma 앱이 꺼져 있으면 켜는 방법을 안내한다.",
+  "version": "1.0.0",
   "homepage": "https://github.com/Rockheung/plugings",
   "author": {
     "name": "Rockheung"
