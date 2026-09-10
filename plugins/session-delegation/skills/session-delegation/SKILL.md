@@ -218,6 +218,13 @@ herdr 로 조작할 세션은 항상 끈다. 사람이 직접 붙어 쓰는 세�
 
 그 세션이 Remote Control 로 떠 있어야 `ListAgents` 에 잡힌다. 기본은 꺼져 있다.
 
+**제어는 ssh 로 간다.** `herdr machine add` 로 머신을 저장해 두어도 **내 pane 에서 도는
+`herdr` 명령이 그 머신으로 가지는 않는다** — 상속받은 세션·소켓 컨텍스트를 그대로 쓴다.
+machine 은 사람이 한 창에서 여러 머신을 보는 장치(통합 에이전트 목록·머신별 알림·자동
+재접속)이고, `herdr machine list` 도 pane 인벤토리가 아니라 접속 프로필 목록이다. ID 와
+에이전트 이름은 서버마다 따로 매겨지므로 두 머신에 `w1:p1` 이나 같은 이름의 에이전트가
+동시에 있을 수 있다. 원격 제어는 그 호스트에서 명령을 돌리고 ID 를 그쪽에서 다시 찾는다.
+
 ```sh
 ssh <host> "herdr agent start <name> --kind claude --pane <id> -- \
   --remote-control <name> --settings '{\"tui\":\"default\",\"spinnerTipsEnabled\":false}' --prompt-suggestions false"
@@ -242,6 +249,30 @@ ssh <host> 'cd /tmp && python3 -m http.server 8811 --bind 0.0.0.0 & sleep 2'
 curl -s --max-time 6 http://<host>:8811/
 ```
 
+## 버전이 갈릴 때 — 붙기는 붙고 일부만 안 먹는다
+
+0.9 부터 클라이언트를 올려도 호환되는 서버와 그 안에서 돌던 에이전트는 그대로 산다. 대신
+**서버에 없는 기능은 그 동작 하나만 죽고 접속은 된다.** 증상이 "연결 실패" 가 아니라 "명령
+하나가 조용히 안 먹는다" 로 오므로, 다른 머신에 맡기기 전에 양쪽을 잰다.
+
+```sh
+herdr status                  # client/server version, endpoint_compatible
+ssh <host> 'herdr status'     # 원격 서버는 따로 잰다
+```
+
+endpoint generation 1 보다 오래된 서버는 한 번 올려야 붙는다. 원격이 구버전이면 이 스킬이
+기대는 것부터 어긋난다.
+
+| 0.9 에서 고쳐진 것 | 구버전에서 겪는 것 |
+|---|---|
+| Claude 의 MCP 질문·Bash 승인 대기를 `blocked` 로 유지 | 승인 대기가 blocked 로 안 잡혀 아래 감시가 헛돈다 |
+| 터미널 제목이 없을 때도 turn·백그라운드 작업을 인식 | 일하는 중인 pane 이 idle 로 보인다 |
+| 아직 화면에서 밀려나지 않은 출력도 `recent` 읽기에 포함 | `pane read` 가 빈 문자열을 준다 — 풀스크린 렌더러 탓이 아니다 |
+
+**버전을 맞추겠다고 원격 서버를 멈추거나 갈아 끼우지 않는다.** 그 머신에서 돌던 남의 pane
+프로세스가 함께 죽는다. 0.9 는 원격 서버를 교체하기 전에 묻고 기본 답이 No 다 — 그 기본값을
+사용자 동의 없이 넘기지 않는다. 없는 기능은 그 동작만 피해서 간다.
+
 ## 세션을 갈아 끼울 때
 
 pane 은 살리고 그 안의 에이전트만 바꾼다.
@@ -252,6 +283,11 @@ pane 은 살리고 그 안의 에이전트만 바꾼다.
 4. 같은 pane 에 새로 띄운다
 
 ## 새 머신에 herdr 을 올릴 때
+
+`herdr machine add <ssh-target> --label <이름>` 이 원격 설치를 준비하고 서버까지 띄운 뒤
+프로필을 저장한다. 설치가 없거나 비호환이면 대화형 승인을 요구하고(비호환 서버 교체는 기본
+No), `claude` 는 여전히 따로 깔아야 한다. 승인 대화를 띄울 수 없는 자리이거나 그 머신을
+프로필로 남기지 않을 것이면 손으로 간다.
 
 ```sh
 curl -sS https://herdr.dev/latest.json          # assets + sha256 맵
