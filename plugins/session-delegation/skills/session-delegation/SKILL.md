@@ -163,23 +163,32 @@ herdr pane run <pane> 'echo "CCS=[$CLAUDE_CODE_CHILD_SESSION]"'   # 비어 있�
 # CCS=[]
 ```
 
-**그래서 서버를 내 Bash 로 띄우면 서버째 오염된다.** 아래 "새 머신에 herdr 을 올릴 때" 가
-정확히 그 모양이다 — `ssh <host> 'setsid nohup herdr server ...'` 는 내 Bash 의 환경을
-물려받는다. 그러면 그 서버가 낳는 **모든 pane 과 그 안의 모든 claude** 가 nested 로 잡힌다.
-한 번 잘못 띄운 원격 서버 하나가 그 머신의 위임을 통째로, 조용히 망가뜨린다. 띄울 때 지운다.
+**그래서 서버를 내 Bash 로 띄우면 서버째 오염된다.** 그 서버가 낳는 **모든 pane 과 그 안의
+모든 claude** 가 nested 로 잡힌다 — 서버 하나가 그 머신의 위임을 통째로, 조용히 망가뜨린다.
+**노출은 로컬이다.** ssh 는 환경을 실어 나르지 않으므로 원격은 이 경로로 오염되지 않는다
+(실측: `ssh oci-ko 'env | grep -c "^CLAUDE"'` → `0`. 클라이언트 기본 `SendEnv` 는 `LANG LC_*`
+뿐이고, 받는 쪽도 `AcceptEnv` 로 허용해야 한다).
+
+그래도 **서버를 띄우는 명령에는 로컬·원격 가리지 않고 항상 붙인다.** 원격에서는 no-op 이고,
+로컬에서는 이 함정을 없앤다. 붙는 비용이 없으므로 조건을 따지지 않는다.
 
 ```sh
-ssh <host> 'env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE \
-  setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 </dev/null &'
+env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE herdr server ...
 ```
 
-이미 그렇게 뜬 서버는 위 한 줄로 진단한다. 서버를 다시 띄울 수 없는 상황이면 pane 쪽에서
-덮는다 — 문서가 주는 override 다.
+`=0` 이나 빈 문자열로 주지 않는다 — 그 표시가 값으로 판정되는지 존재로 판정되는지 문서가
+말하지 않는다. **지우는 것이 유일하게 모호하지 않다.**
+
+서버를 다시 띄울 수 없는 상황이면 pane 쪽에서 덮는다 — 문서가 주는 override 다.
 
 ```sh
 herdr pane split --current --direction right --cwd <경로> --no-focus \
   --env CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1
 ```
+
+**이 override 를 서버에 걸지 않는다.** 서버에 걸면 그 아래 전부가 물려받아, pane 안의
+claude 가 정말로 낳은 중첩 세션까지 최상위로 잡힌다. 서버는 지우고(`env -u`), 덮는 것은
+문제가 확인된 pane 하나로 한정한다.
 
 굳이 Bash 에서 `claude` 를 직접 띄워야 하면 같은 것을 앞에 붙인다.
 
@@ -388,7 +397,7 @@ curl -sS https://herdr.dev/latest.json          # assets + sha256 맵
 ssh <host> 'uname -sm'                          # 클라우드 인스턴스는 aarch64 인 경우가 흔하다
 # 받아서 sha256 검증 후 ~/.local/bin/herdr 로 설치, 그다음 헤드리스로 기동
 ssh <host> 'env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE \
-  setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 </dev/null &'   # 위 nested 절
+  setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 </dev/null &'   # 항상 지우고 띄운다
 ```
 
 서버가 뜨면 workspace `w1` 과 pane `w1:p1` 이 셸 프롬프트 상태로 이미 있다. `pane split`
