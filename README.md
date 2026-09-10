@@ -29,6 +29,21 @@
 | **[mcp-atlassian](./plugins/mcp-atlassian)** | 로컬 Docker 의 `mcp-atlassian` 을 HTTP MCP 서버 `atlassian` 으로 **번들 등록**. 컨테이너 자체는 관리하지 않는다 — `reference/docker-compose.snippet.yml` 로 별도 기동. 같은 이름의 유저/프로젝트 스코프 MCP 가 있으면 그쪽이 우선. |
 | **[mcp-slack](./plugins/mcp-slack)** | 로컬 Docker 의 `slack-explorer-mcp` 를 **토큰 주입용 caddy 프록시** 경유로 HTTP MCP 서버 `slack` 으로 번들 등록. 본체는 내부 네트워크에만 열려 있고 프록시만 노출 — 프록시가 `X-Slack-User-Token` 을 자동 주입해 둘이 하나의 MCP 진입점을 이룬다. |
 
+## 여기 없는 것 — 다른 레포가 자기 스킬을 낸다
+
+**[tirno](https://github.com/Rockheung/tirno)** — raw CDP 위의 다중 세션 브라우저 자동화
+CLI. 스킬 5종(`tirno` 명령 레퍼런스 · `tirno-runbook` 작업 절차 · `tirno-mcp`
+chrome-devtools-mcp 대응표 · `tirno-sw-override` · `tirno-origin-relay`)은 **도구 레포가
+자기 마켓플레이스로 직접 낸다.**
+
+```
+/plugin marketplace add Rockheung/tirno
+/plugin install tirno@tirno
+```
+
+여기로 복사해 오지 않는다. 스킬은 도구 버전과 같이 움직여야 하는데, 두 마켓플레이스에
+올리면 낡은 쪽이 조용히 굳는다. 도구를 내는 레포가 스킬도 내는 것이 정본을 하나로 둔다.
+
 ## 철학
 
 **추측 금지, 실측만.** 설정을 LLM 기억으로 짐작하지 않고, 읽기전용 스크립트가
