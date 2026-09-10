@@ -57,12 +57,21 @@ cwd 는 pane 을 만들 때 굳고 나중에 못 바꾸므로, "일단 옆에 pa
 `pane read` 로 볼 수 있는 폭이 준다 — 갭이 큰 일을 옆에 붙이면 지금 하던 일까지 같이 좁아진다.
 
 ```sh
-herdr workspace create --cwd <경로> --label <짧은 이름>   # 반환된 workspace 에 pane 이 하나 선다
-herdr pane list --workspace <id>                          # 그 pane id 로 agent start
+herdr workspace create --cwd <경로> --label <짧은 이름> --no-focus   # pane 이 하나 선 채로 온다
+herdr pane list --workspace <id>                                     # 그 pane id 로 agent start
 ```
 
 workspace label 은 그 경로를 알아보게 짓는다(기존 것들이 `foyer`·`veilcast` 처럼 디렉터리
-이름을 쓴다). 화면이 바뀌므로 사용자가 보고 있는 작업을 가리지 않는지는 만들기 전에 생각한다.
+이름을 쓴다). **`--no-focus` 로 만든다** — 사용자가 보고 있던 화면을 내 위임이 가져가지
+않는다(`pane split`·`tab create` 도 같은 플래그를 받는다).
+
+focus 로 사용자에게 무엇을 보여주려 하지 않는다. 0.9 부터 클라이언트마다 보는 workspace 와
+tab 이 따로 놀아서, 내가 옮긴 focus 가 사용자 쪽 화면과 같다는 보장이 없다. 알릴 일이 있으면
+알림으로 건다.
+
+```sh
+herdr notification show "<제목>" --body "<한 줄>" --sound request
+```
 
 **cwd 는 그 세션이 쓸 수 있는 스킬과 설정도 정한다.** `<cwd>/.claude/settings.local.json` 의
 `skillOverrides` 가 스킬을 `off` 로 두고 있으면 그 경로에서 뜬 세션은 그 스킬을 못 부른다.
@@ -304,6 +313,12 @@ ssh <host> 'setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 <
 우분투 기본값에서는 PATH 에 안 잡힌다. `.bashrc` 에 추가하고, 이미 떠 있는 pane 에는
 `pane run` 으로 `export PATH=$HOME/.local/bin:$PATH` 를 한 번 넣는다.
 
+pane 을 만들 때 환경을 실을 수도 있다 — `pane split`·`workspace create`·`tab create` 가
+`--env KEY=VALUE` 를 받는다. **PATH 만은 이걸로 못박히지 않는다.** 실측(zsh, `.zshrc` 가
+PATH 를 다시 만드는 머신)에서 `--env FOO=bar` 는 그대로 도착했지만 `--env PATH=...` 는
+남지 않았다. 셸 rc 가 나중에 실행되기 때문이다. 실었으면 `pane run <pane> 'echo $PATH'` 로
+확인하고, 안 남으면 rc 쪽을 고친다.
+
 ## 완료를 아는 법
 
 | 대상 | 방법 |
@@ -446,6 +461,15 @@ evidence: "◐ Claude Code"
 **`ListAgents` 의 이름과 herdr 의 이름은 다르다.** 둘을 잇는 것은 `herdr agent list` 뿐이다 —
 `name`·`pane_id`·`cwd` 가 한 줄에 나오므로, 그것으로 대조해 어느 pane 이 어느 세션인지 정한다.
 `herdr pane list` 는 pane 만 주고 에이전트 이름을 주지 않는다.
+
+**`name` 은 이름을 준 에이전트에만 붙는다.** 사람이 직접 띄운 세션은 `agent list` 에 종류
+(`"agent":"claude"`)와 `pane_id`·`cwd`·`terminal_title` 만 나오고 `name` 자체가 없다(실측).
+내가 띄우지 않은 세션은 cwd 로 대조하는 수밖에 없고, 그 대조는 추정이다.
+
+**`workspace close --group` 을 습관적으로 붙이지 않는다.** 0.9 부터 worktree workspace 가
+열려 있는 primary workspace 는 그냥은 닫히지 않고 `workspace_group_close_required` 로
+거부된다. 그 거부는 **묶인 것이 더 있다는 통지**지 `--group` 을 붙이라는 뜻이 아니다 —
+붙이면 연결된 worktree workspace 까지 함께 닫힌다.
 
 **`notify_when_idle` 구독은 pane 을 닫은 뒤에도 발화한다.** 이미 정리한 세션의 idle 통지가
 뒤늦게 도착하므로, 그 알림을 새 작업 신호로 읽지 않는다.
