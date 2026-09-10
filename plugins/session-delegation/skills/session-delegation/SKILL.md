@@ -121,14 +121,48 @@ herdr 가 필요한 유일한 경우다. 순서가 중요하다.
 python3 -c 'import json,os;print(json.load(open(os.path.expanduser("~/.claude.json"))).get("projects",{}).get("<경로>",{}).get("hasTrustDialogAccepted"))'
 
 # 1. pane 을 만든다. cwd 는 시작할 때 굳고 나중에 못 바꾼다
-herdr pane split --current --direction right --cwd <경로> --no-focus
+herdr pane split --current --direction right --cwd <경로> --no-focus \
+  --env CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
 
 # 2. 에이전트를 띄운다. 인자에 일감을 넣지 않는다
 herdr agent start <name> --kind claude --pane <pane id> -- \
-  --remote-control <name> --settings '{"tui":"default","spinnerTipsEnabled":false}' \
-  --permission-mode auto --prompt-suggestions false
+  --settings '{"tui":"default","spinnerTipsEnabled":false,"promptSuggestionEnabled":false}' \
+  --permission-mode auto
 
 # 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
+```
+
+## 내 Bash 로 `claude` 를 직접 띄우지 않는다 — nested 로 잡힌다
+
+Claude Code 는 자기가 낳은 서브프로세스(Bash·PowerShell·Monitor 도구, 훅, 상태줄)에
+`CLAUDE_CODE_CHILD_SESSION=1` 을 심는다. **세션 자신에게 붙는 표시가 아니다.** 사람과
+대화하는 최상위 세션의 프로세스에는 없고, 그 세션이 낳은 서브프로세스에만 있다(실측).
+
+```sh
+$ ps eww -p "$CLAUDE_PID" | tr ' ' '\n' | grep CLAUDE_CODE_CHILD_SESSION   # 세션 프로세스: 없음
+$ env | grep CLAUDE_CODE_CHILD_SESSION                                     # 그 세션의 Bash 안: 있음
+CLAUDE_CODE_CHILD_SESSION=1
+```
+
+문제는 **상속**이다. 내 Bash 에서 `claude` 를 직접 띄우면 그 표시를 물려받은 새 세션이
+**nested 로 오분류된다.**
+`ssh <host> 'claude ...'`, `setsid nohup claude ...`, `screen`·백그라운드 런처를 거친 실행이
+모두 해당한다. nested 로 잡힌 세션은(문서 근거)
+
+- 트랜스크립트가 저장되지 않는다 → 나중에 `claude --resume <id>` 로 못 잇는다
+- `--resume`·`--continue`·↑ 히스토리에서 빠진다
+- **`claude agents` 등록에서 빠진다** → 주소가 안 생긴다
+
+세 번째가 위임에 치명적이다. 띄웠는데 목록에 안 뜨는 원인이 RC 로그인만은 아니다.
+
+**herdr 를 거치면 이 문제가 없다.** `agent start` 가 낳는 프로세스는 herdr 서버의 자식이라
+내 환경을 물려받지 않는다 — 실측에서 herdr 로 띄운 세션은 정상 등록됐다. 이것이 "일꾼은
+herdr 로 띄운다" 의 또 다른 이유다.
+
+굳이 Bash 에서 직접 띄워야 하면 명시적으로 덮는다.
+
+```sh
+CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 claude ...
 ```
 
 ## 권한 모드는 auto — 거는 길이 둘이다
@@ -175,7 +209,7 @@ done
 - 머신의 `~/.claude/settings.json` 은 건드리지 않는다. 사람이 직접 붙어 쓸 때는 풀스크린이
   낫다. 끄는 건 herdr 로 조작할 세션에 한정한다.
 
-## `--prompt-suggestions false` — 화면을 읽어 판단한다면 끈다
+## 프롬프트 제안을 끈다 — `--prompt-suggestions` 로는 안 꺼진다
 
 Claude Code 는 턴이 끝나면 **다음에 사용자가 칠 법한 문장을 입력란에 미리 띄운다.** 사람이
 보기엔 흐린 제안이지만 `pane read` 로 뜬 텍스트에는 그 구분이 없다. 그래서 위임한 쪽이
@@ -188,9 +222,34 @@ Claude Code 는 턴이 끝나면 **다음에 사용자가 칠 법한 문장을 �
 - 그 텍스트가 입력란에 있다고 믿고 보낸 `/exit` 가 그 뒤에 붙어 명령으로 인식되지 않았다.
   세션은 죽지 않았는데 herdr 의 이름 등록만 풀려 `agent list` 가 비었다
 
+**끄는 스위치는 셋이고 `--prompt-suggestions` 는 그중에 없다.** 그 플래그는 print/SDK 모드에서
+턴마다 `prompt_suggestion` 메시지를 내보내게 하는 것이라(`-p ... --output-format stream-json`),
+대화형 세션에 `false` 로 줘도 **아무 일도 일어나지 않는다.** 대화형의 스위치는 `/config` 토글,
+설정 키 `promptSuggestionEnabled`, 환경변수 `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION` 셋이고
+환경변수가 설정보다 우선한다.
+
+띄울 때 둘 다 건다 — 설정 키는 `--settings` 에, 환경변수는 pane 에.
+
 ```sh
---prompt-suggestions false   # 값은 true|false|1|0|yes|no|on|off
+herdr pane split --current --direction right --cwd <경로> --no-focus \
+  --env CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false
+herdr agent start <name> --kind claude --pane <pane id> -- \
+  --settings '{"tui":"default","spinnerTipsEnabled":false,"promptSuggestionEnabled":false}' \
+  --permission-mode auto
 ```
+
+pane 에 실은 환경변수는 그 pane 에서 에이전트를 갈아 끼워도 산다(PATH 만은 셸 rc 가 덮는다 —
+위 "새 머신" 절).
+
+실측(2026-09-10, claude 2.1.267)으로 갈랐다.
+
+| 띄운 방식 | 긴 턴(12·17초) 뒤 입력란 |
+|---|---|
+| `--prompt-suggestions false` | `❯ session-delegation SKILL.md 가 475줄인데 좀 쪼개자` — 떴고 다음 턴에도 또 떴다 |
+| `--env` + `promptSuggestionEnabled: false` | 두 턴 모두 비어 있음 |
+
+**짧은 턴으로는 대조가 안 된다.** 제안은 프롬프트 캐시가 식었거나 턴이 짧으면 원래 안 뜨고,
+플랜 모드·직전 턴 오류·사용량 한도 근처에서도 건너뛴다. 아래 스피너 팁 절과 같은 조건이다.
 
 herdr 로 조작할 세션은 항상 끈다. 사람이 직접 붙어 쓰는 세션에서는 켜 두는 편이 낫다 —
 끄는 것은 `--settings '{"tui":"default"}'` 와 같은 이유이고 같은 범위다.
@@ -236,8 +295,12 @@ machine 은 사람이 한 창에서 여러 머신을 보는 장치(통합 에이
 
 ```sh
 ssh <host> "herdr agent start <name> --kind claude --pane <id> -- \
-  --remote-control <name> --settings '{\"tui\":\"default\",\"spinnerTipsEnabled\":false}' --prompt-suggestions false"
+  --remote-control <name> \
+  --settings '{\"tui\":\"default\",\"spinnerTipsEnabled\":false,\"promptSuggestionEnabled\":false}'"
 ```
+
+`--remote-control` 은 그 세션과 **브리지로 대화할 때만** 필요하다. ssh 로 붙어 herdr 로
+부리기만 할 것이면 빼도 된다 — 그러면 claude.ai 로그인도 필요 없다.
 
 도는 세션에도 `/remote-control` 로 나중에 붙일 수 있다. 다만 그렇게 켜면 이름을 못 정해서
 호스트명 기반 자동 이름이 붙는다. 이름을 맞추려면 세션을 다시 띄운다.
