@@ -155,11 +155,33 @@ CLAUDE_CODE_CHILD_SESSION=1
 
 세 번째가 위임에 치명적이다. 띄웠는데 목록에 안 뜨는 원인이 RC 로그인만은 아니다.
 
-**herdr 를 거치면 이 문제가 없다.** `agent start` 가 낳는 프로세스는 herdr 서버의 자식이라
-내 환경을 물려받지 않는다 — 실측에서 herdr 로 띄운 세션은 정상 등록됐다. 이것이 "일꾼은
-herdr 로 띄운다" 의 또 다른 이유다.
+**herdr 를 거치면 이 문제가 없다 — 그 서버가 깨끗한 경우에 한해서.** pane 은 내 환경이 아니라
+**herdr 서버의 환경**을 물려받는다. 실측에서 새 pane 은 그 표시가 아예 없었다.
 
-굳이 Bash 에서 직접 띄워야 하면 명시적으로 덮는다.
+```sh
+herdr pane run <pane> 'echo "CCS=[$CLAUDE_CODE_CHILD_SESSION]"'   # 비어 있어야 한다
+# CCS=[]
+```
+
+**그래서 서버를 내 Bash 로 띄우면 서버째 오염된다.** 아래 "새 머신에 herdr 을 올릴 때" 가
+정확히 그 모양이다 — `ssh <host> 'setsid nohup herdr server ...'` 는 내 Bash 의 환경을
+물려받는다. 그러면 그 서버가 낳는 **모든 pane 과 그 안의 모든 claude** 가 nested 로 잡힌다.
+한 번 잘못 띄운 원격 서버 하나가 그 머신의 위임을 통째로, 조용히 망가뜨린다. 띄울 때 지운다.
+
+```sh
+ssh <host> 'env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE \
+  setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 </dev/null &'
+```
+
+이미 그렇게 뜬 서버는 위 한 줄로 진단한다. 서버를 다시 띄울 수 없는 상황이면 pane 쪽에서
+덮는다 — 문서가 주는 override 다.
+
+```sh
+herdr pane split --current --direction right --cwd <경로> --no-focus \
+  --env CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1
+```
+
+굳이 Bash 에서 `claude` 를 직접 띄워야 하면 같은 것을 앞에 붙인다.
 
 ```sh
 CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 claude ...
@@ -365,7 +387,8 @@ No), `claude` 는 여전히 따로 깔아야 한다. 승인 대화를 띄울 수
 curl -sS https://herdr.dev/latest.json          # assets + sha256 맵
 ssh <host> 'uname -sm'                          # 클라우드 인스턴스는 aarch64 인 경우가 흔하다
 # 받아서 sha256 검증 후 ~/.local/bin/herdr 로 설치, 그다음 헤드리스로 기동
-ssh <host> 'setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 </dev/null &'
+ssh <host> 'env -u CLAUDE_CODE_CHILD_SESSION -u CLAUDECODE \
+  setsid nohup ~/.local/bin/herdr server >/tmp/herdr-server.out 2>&1 </dev/null &'   # 위 nested 절
 ```
 
 서버가 뜨면 workspace `w1` 과 pane `w1:p1` 이 셸 프롬프트 상태로 이미 있다. `pane split`
