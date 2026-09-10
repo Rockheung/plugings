@@ -326,8 +326,13 @@ herdr 은 그 상태를 `blocked` 로 분류하니(승인·질문 UI 를 인식�
 `SendMessage` 경로를 쓰더라도 이건 따로 걸어야 한다.
 
 ```sh
-herdr agent wait <name> --until blocked --timeout 120000
+herdr agent wait <name> --timeout 120000                    # idle·done·blocked 어느 쪽이든
+herdr agent wait <name> --until blocked --timeout 120000    # 멈춤만 잡을 때
 ```
+
+`--until` 을 안 주면 정착 상태(`idle`·`done`·`blocked`) 어디서든 돌아오고, 어느 상태였는지는
+반환값이 말해 준다. `notify_when_idle` 이 없는 다른 머신에서는 **이쪽 하나로 완료와 멈춤을
+같이 받는다** — `--until blocked` 만 걸어 두면 끝난 것을 못 받는다.
 
 **auto mode 와 별개로 항상 건다.** auto 는 권한 프롬프트를 줄이는 것이지 없애는 것이 아니다 —
 모델이 던지는 질문, 계획 승인, auto 가 자동으로 답하지 않는 종류의 확인은 그대로 남는다.
@@ -337,6 +342,39 @@ herdr agent wait <name> --until blocked --timeout 120000
   보내지 않는다 — 그 세션이 내 권한 밖의 일을 승인받으려는 것일 수 있다(아래 "권한 세탁 금지")
 - `agent prompt` 는 blocked 인 에이전트에 입력을 보내지 않고 `agent_blocked` 로 거부한다.
   그 거부를 우회해 `pane send-keys` 로 눌러 넘기지 않는다
+
+### `prompt` 와 `wait` 를 나눠 부르지 않는다
+
+```sh
+herdr agent prompt <name> "..." --wait --timeout 120000
+```
+
+`prompt` 를 보내고 나서 따로 `agent wait` 를 걸면 **그 사이의 전이를 놓친다.** 0.9 부터 새
+구독은 지난 이벤트를 재생하지 않고 구독한 시점부터의 라이브 이벤트로 시작하므로, 이미
+지나간 상태 변화를 기다리다 타임아웃까지 서 있게 된다. 한 번에 `--wait` 로 간다.
+
+`--wait` 는 제출 뒤 5초 안에 **관측된 `working` 또는 `blocked`** 를 요구한다. 무관한 `idle`
+이나 세션 변화는 이 관문을 통과시키지 않는다. 못 보면 `agent_prompt_stalled`, 호출자 타임아웃이
+먼저 끝나면 `timeout` 이다.
+
+**둘 다 "전달되지 않았다" 는 증거가 아니다.** 같은 프롬프트를 다시 밀어 넣기 전에 `agent get`
+과 `agent read` 로 무엇이 들어갔는지 본다 — 두 번 들어간 지시는 상대가 두 번 한다.
+
+### 상태가 납득이 안 되면 `agent explain`
+
+무엇을 보고 그 상태로 판정했는지 규칙과 근거를 준다. 화면 텍스트를 내가 다시 읽고 추측하는
+것보다 이쪽이 먼저다(위 `--prompt-suggestions` 절).
+
+```
+$ herdr agent explain <name>
+agent: claude
+state: working
+rule: osc_title_working (region=osc_title priority=1100)
+evidence: "◐ Claude Code"
+```
+
+`unknown` 은 에이전트가 있는데 분류를 못 한 것이지 완료가 아니다. 어느 신호가 비어 그렇게
+됐는지를 이 출력이 가른다.
 
 ## 무엇을 재는 위임이면 지시가 답을 흘리지 않는다
 
