@@ -3,8 +3,8 @@ name: session-delegation
 description: |
   다른 Claude 세션에 일을 맡기고 결과를 받을 때 읽는다. 같은 머신의 세션, 새로 띄우는
   세션, 다른 머신(원격 서버)의 세션이 각각 절차가 다르다.
-  ListAgents 나 SendMessage 를 부르기 전에, 그리고 herdr 로 pane 을 만들어 에이전트를
-  띄우기 전에 읽는다.
+  ListAgents 나 SendMessage 를 부르기 전에, 그리고 herdr 로 pane 을 만들어 에이전트(claude·
+  opencode)를 띄우기 전에 읽는다.
   "저쪽 서버에서 돌려줘", "여러 개 동시에 시켜", "다른 세션한테 물어봐", "원격에 붙어서
   작업" 같은 요청이 오면 해당한다. 결과를 받은 뒤 그대로 옮기지 않고 검증하는 절차도 담는다.
 ---
@@ -131,6 +131,8 @@ herdr agent start <name> --kind claude --pane <pane id> -- \
 
 # 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
 ```
+
+opencode 를 띄울 때의 대응 스위치는 아래 "opencode 를 띄울 때" 절에 있다.
 
 ## 내 Bash 로 `claude` 를 직접 띄우지 않는다 — nested 로 잡힌다
 
@@ -312,6 +314,54 @@ herdr 로 조작할 세션은 항상 끈다. 사람이 직접 붙어 쓰는 세�
 
 `~/.claude.json` 의 `tipLifetimeShownCounts` 로 누적 표시 횟수를 볼 수 있으나 전역 카운터라
 어느 세션이 늘렸는지 갈리지 않는다 — 판정 근거로 쓰지 않는다.
+
+## opencode 를 띄울 때 — `--mini --auto`
+
+`--kind opencode` 로 띄우는 세션에도 위 세 절과 같은 문제가 있고, 스위치만 다르다.
+
+| 목적 | claude | opencode |
+|---|---|---|
+| 권한 프롬프트에서 멈추지 않기 | `--permission-mode auto` | `--auto` (명시적으로 deny 한 것 외에는 전부 승인) |
+| 기본 렌더러(alternate screen 안 씀) | `--settings '{"tui":"default"}'` | `--mini` |
+| 팁·제안 끄기 | `spinnerTipsEnabled`·`promptSuggestionEnabled` | 해당 없음 — 아래 "읽을 때 함정" |
+| 모델 지정 | `--model <alias>` | `-m <provider>/<model>` |
+
+```sh
+herdr agent start <name> --kind opencode --pane <pane id> -- -m <provider>/<model> --mini --auto
+```
+
+실측(2026-09-11, opencode 1.18.25 · herdr 0.9.0)으로 갈랐다.
+
+| 띄운 방식 | 23줄짜리 pane 에서 80줄 출력 뒤 `agent read --lines 200` |
+|---|---|
+| 기본(풀스크린) | 일하는 중에는 `agent_not_idle` 로 거부 — "alternate-screen history can only be captured by scrolling while idle". idle 이 된 뒤에야 herdr 가 스크롤해서 읽는다 |
+| `--mini` | 셸 명령줄부터 80줄 전부 90줄로 읽힘 — host scrollback 에 그대로 남는다 |
+
+권한은 `opencode.json` 의 `permission` 키(`bash`·`edit`·`webfetch` 등을 `ask`/`allow`/`deny`)가
+정하고, `--auto` 는 `deny` 가 아닌 것을 전부 승인한다. 실측한 머신(`permission` 키 없음)에서는
+`--auto` 유무와 무관하게 bash `date` 가 묻지 않고 통과했다 — 기본값이 이미 `allow` 쪽이다.
+그래도 `--auto` 를 준다: `ask` 로 둔 머신에서는 멈추고, 그것이 위임한 쪽에 보이지 않는 것은
+claude 와 같다. 멈춘 상태를 herdr 가 `blocked` 로 잡는지는 이번에 멈추는 상황을 만들지 못해
+재지 않았다. **`--auto` 를 줬어도 blocked 감시는 따로 건다.**
+
+**읽을 때 함정.** 끌 스위치가 없는 두 가지가 `pane read` 텍스트에 그대로 섞인다.
+
+- 사고 과정이 `Thinking: …` 으로 본문 앞에 찍힌다(thinking 을 켠 모델). 답변으로 읽지 않는다.
+- 빈 입력란의 placeholder(`Ask anything... "Fix a TODO in the codebase"`)가 입력처럼 보인다.
+  위 `--prompt-suggestions` 절과 같은 오독이므로, 입력란 텍스트로 상태를 판정하지 않는다.
+  **끄는 설정이 없다** — 배포본(1.18.25)에 문구 목록이 하드코딩돼 있고(`"Fix a TODO in the
+  codebase"`, `"What is the tech stack of this project?"`, `"Fix broken tests"` 중 하나), `tui.json`
+  스키마의 `prompt` 키는 `max_width` 뿐이다. 대신 **첫 메시지 전에만 뜬다** — mini 는 코드에서
+  `state().first` 가 아니면 빈 문자열을 그리고, 풀스크린도 홈 화면 컴포넌트에만 목록이 넘어간다.
+  실측에서 프롬프트를 한 번 보낸 뒤의 `agent read` 에는 이 문구가 없었다. 그러므로 `agent start`
+  직후 화면을 읽어 무언가를 판정하지 않으면 섞이지 않는다.
+
+**`agent start` 인자에 `--prompt` 를 넣지 않는다.** claude 와 같은 이유다 — 띄우기와 일 넘기기를
+나눈다. 파일을 붙여 보낼 일이면 `opencode run -f <path>` 가 있지만 그것은 대화형 세션이 아니라
+단발 실행이고, 대화형 세션에서는 프롬프트 본문에 경로를 적어 읽게 한다.
+
+이미지를 붙일 때는 `opencode.json` 의 `attachment.image` 한도(기본 2000×2000, 초과 시 리사이즈)와
+모델 쪽 한도가 따로 있다. 모델이 무엇을 받았는지는 화면이 아니라 응답 내용으로 검증한다.
 
 ## 다른 머신에 맡기기
 
