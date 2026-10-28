@@ -132,6 +132,24 @@ herdr agent start <name> --kind claude --pane <pane id> -- \
 # 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
 ```
 
+## opencode 에 맡길 때 — 모델은 `opencode run -m` 으로 고른다
+
+opencode 2.2.0 의 최상위 명령(TUI)에는 `-m`/`--model` 이 없다. `herdr agent start <name> --kind opencode --pane <pane id> -- -m <provider/model>`
+은 pane 에서 `Unrecognized flag: -m` 으로 끝나고, 에이전트가 뜨지 않아 `agent start` 가 timeout 으로 돌아온다(실측). `-m` 은
+`opencode run` 과 `opencode mini` 에만 있다.
+
+일회성 일감은 pane 에서 일반 명령으로 돌린다. 진행이 그 pane 에 보이고, 끝 표지로 기다린다:
+
+```sh
+herdr pane run <pane id> 'opencode run -m <provider/model> --auto --title "<제목>" "$(cat <프롬프트 파일>)" 2>&1 | tee <로그>; echo "OPENCODE-EXIT=$?"'
+herdr pane wait-output <pane id> --match "OPENCODE-EXIT=" --timeout <ms>
+```
+
+`--auto` 는 명시적으로 막힌 것 외의 권한을 묻지 않고 승인한다(`opencode run --help`). 쓰기 범위는 프롬프트에 경로로 못박는다. `--auto` 없이 돌린 경우는 재지 않았다.
+
+모델 이름은 `opencode models` 로 확인한다. 같은 모델 계열이 제공자마다 따로 있어(API 제공자와 로컬 프록시 등) 이름만 보고 고르면 엉뚱한
+제공자로 간다.
+
 ## 내 Bash 로 `claude` 를 직접 띄우지 않는다 — nested 로 잡힌다
 
 Claude Code 는 자기가 낳은 서브프로세스(Bash·PowerShell·Monitor 도구, 훅, 상태줄)에
