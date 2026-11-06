@@ -1,0 +1,10 @@
+{
+  "name": "i-will-do-it-later",
+  "version": "1.0.0",
+  "description": "일을 멈추자는 말을 꺼낸 세션을 끝낸다. 미룰 일을 기록하고 미커밋 변경과 띄운 실행을 정리한 뒤, 컴파일한 바이너리가 자기 herdr pane 에 /exit 를 보낸다.",
+  "homepage": "https://github.com/Rockheung/plugings",
+  "author": {
+    "name": "Rockheung"
+  },
+  "license": "MIT"
+}
