@@ -4,16 +4,12 @@
 
 ## 설치
 
-[herdr](https://herdr.dev) pane 안에서 도는 세션과 [bun](https://bun.sh) 이 필요하다. 바이너리와 허용 규칙은 사용자가 직접 만든다. 세션이 스스로 만들면 auto 모드 분류기가 `Tmux Self Drive` 사유로 거부한다.
+[herdr](https://herdr.dev) pane 안에서 도는 세션이 필요하다. 바이너리는 `skills/i-will-do-it-later/bin/` 에 `darwin-arm64`·`darwin-x64`·`linux-arm64`·`linux-x64` 로 들어 있다. 다시 빌드할 때는 `bun build --compile --target=bun-<os>-<arch>` 를 쓴다.
 
-```sh
-bun build --compile <플러그인 경로>/skills/i-will-do-it-later/i-will-do-it-later.ts --outfile ~/.local/bin/i-will-do-it-later
-```
-
-`/permissions` 의 Allow 에 규칙을 넣는다.
+허용 규칙은 사용자가 직접 넣는다. 규칙이 없으면 auto 모드 분류기가 `Tmux Self Drive` 사유로 거부한다. `/permissions` 의 Allow 에 쓰는 플랫폼의 경로를 넣는다.
 
 ```
-Bash(~/.local/bin/i-will-do-it-later)
+Bash(~/.claude/plugins/cache/plugings/i-will-do-it-later/1.0.0/skills/i-will-do-it-later/bin/i-will-do-it-later-darwin-arm64)
 ```
 
 ## 한계
