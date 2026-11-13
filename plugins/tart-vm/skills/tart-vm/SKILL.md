@@ -5,14 +5,14 @@ description: 에이전트 전용 macOS VM(Tart, 예: `agent-mac`)을 띄우고·
 
 # tart-vm — 에이전트 전용 macOS VM 운용
 
-실측 기준: 2026-11-13, 호스트 macOS 27 · Tart 2.41.1 · 이미지 `ghcr.io/cirruslabs/macos-tahoe-base`(게스트 macOS 26.6.2).
+실측 기준: 2026-11-13, 호스트 macOS 27(5K 2배율 메인 화면) · Tart 2.41.1 · 이미지 `ghcr.io/cirruslabs/macos-tahoe-base`(게스트 macOS 26.6.2).
 
 ## 구성 예 (작성자 환경 — 값은 자기 환경에 맞게)
 | 항목 | 값 |
 |---|---|
 | 설치 | `brew install openai/tools/tart` (tap 은 `openai/tools`, formula 단위 `brew trust` 필요: `tart`·`softnet`) |
 | 저장소 | `TART_HOME=/Volumes/tart/tart` (`~/.zshenv`). 외장 USB SSD, APFS, 볼륨명 `tart` |
-| VM | `agent-mac` — CPU 4, 메모리 16384MB, 디스크 50GB |
+| VM | `agent-mac` — CPU 4, 메모리 8192MB, 화면 1204×753pt(HiDPI 2408×1506px), `displayRefit` 끔, 디스크 50GB. 메모리·화면은 현행 Mac 중 가장 작은 MacBook Neo(A18 Pro, 8GB, 2408×1506 219ppi)에 맞춤 |
 | 계정 | `admin` / `admin` (자동 로그인, 무암호 sudo) |
 | 이미지 기본값 | SIP 꺼짐, Gatekeeper 꺼짐, 절전 0, Homebrew 설치됨, SSH·화면 공유·Remote Application Scripting 켜짐, 원격 관리(ARD) 꺼짐 |
 
@@ -28,7 +28,7 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 - **`--no-usb-accessories` 필수.** 빼면 Tart 가 USB 키보드와 Mac 키보드를 둘 다 붙이고(소스 `Platform/Darwin.swift` `keyboards()`), 그 상태에서는 게스트가 두벌식이어도 VM 창 타이핑이 영문으로 들어간다. 이 옵션이면 키보드가 `Virtual Keyboard` 하나만 붙고 한글이 입력된다.
 - `--capture-system-keys`: VM 창 포커스 중 Cmd+Tab 등이 게스트로 간다. **Ctrl+Space(입력 소스 전환)는 이 옵션으로도 호스트가 먼저 처리한다**(호스트 입력 소스만 바뀌고 게스트는 그대로, 실측). 게스트 한영 전환은 Caps Lock 전환을 쓴다(게스트 System Settings → Keyboard → Text Input → Edit… → All Input Sources).
 - `tart exec` 는 부팅 직후 Guest Agent 가 뜨기 전까지 `is the Tart Guest Agent running?` 으로 실패한다. 위 루프로 기다린다.
-- 멈추기: `tart stop agent-mac` (정상 종료). 메모리·CPU 변경은 꺼진 상태에서만: `tart set agent-mac --memory 16384`.
+- 멈추기: `tart stop agent-mac` (정상 종료). CPU·메모리·화면 설정 변경은 꺼진 상태에서만: `tart set agent-mac --memory 8192`.
 - 실행 중 외장 디스크를 뽑으면 게스트 디스크가 깨질 수 있다. 꺼져 있을 때는 그냥 뽑아도 된다(볼륨의 Spotlight·fseventsd 끔).
 
 ## 게스트에서 명령 실행
@@ -45,22 +45,43 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 - 입력 소스 API(TIS)처럼 GUI 세션이 필요한 작업은 `tart exec` 로 한다. GUI 앱 실행(`open -a …`)은 exec·SSH 둘 다 됐다.
 
 ## 화면 보기
-- 게스트 안 캡처: `tart exec agent-mac screencapture -x /tmp/s.png` 후 위 방법으로 꺼낸다. 창 내용까지 찍힌다(2048×1536, 권한 창 없음).
+- 게스트 안 캡처: `tart exec agent-mac screencapture -x /tmp/s.png` 후 위 방법으로 꺼낸다. 창 내용까지 찍힌다(게스트 픽셀 그대로, 1204×753pt 면 2408×1506, 권한 창 없음).
 - 사람이 조작: 화면 공유 `open vnc://$(tart ip agent-mac)` (admin/admin). 한글·단축키는 화면 공유 쪽이 잘 된다.
 - VM 창 위치: `osascript -e 'tell application "System Events" to get {position, size} of window 1 of (first process whose unix id is <tart PID>)'` → 호스트 `screencapture -x -R x,y,w,h`.
+
+### 화면 해상도 바꾸기
+- `--display WxHpt` 의 pt 는 **호스트 메인 화면 배율**을 따른다(소스 `Platform/Darwin.swift` `graphicsDevice()`: `VZMacGraphicsDisplayConfiguration(for: NSScreen.main, sizeInPoints:)`). 2배율 호스트면 HiDPI 로 그려진다. `px` 는 72ppi 1배율.
+- **`tart set --display` 만으로는 게스트 화면이 안 바뀐다.** 게스트가 고를 수 있는 모드 목록에 그 크기가 추가될 뿐이고, 게스트 macOS 는 전에 쓰던 모드를 유지한다. 게스트 안에서 모드를 영구 적용한다(재부팅 뒤 유지, 실측):
+  ```sh
+  tart exec agent-mac sh -c 'cat > /tmp/setmode.swift <<EOF
+  import CoreGraphics
+  let d = CGMainDisplayID()
+  let opts = [kCGDisplayShowDuplicateLowResolutionModes: true] as CFDictionary
+  let m = (CGDisplayCopyAllDisplayModes(d, opts) as! [CGDisplayMode]).first { \$0.width == 1204 && \$0.height == 753 && \$0.pixelWidth == 2408 }!
+  var cfg: CGDisplayConfigRef?
+  CGBeginDisplayConfiguration(&cfg)
+  CGConfigureDisplayWithDisplayMode(cfg, d, m, nil)
+  print(CGCompleteDisplayConfiguration(cfg, .permanently).rawValue)
+  EOF
+  swift /tmp/setmode.swift'
+  ```
+  `0` 이 나오면 성공. 확인은 게스트 `screencapture` 결과 픽셀 크기로.
+- `displayRefit`(기본 켜짐)은 VM 창 크기에 맞춰 게스트 해상도를 바꾼다. 고정 해상도가 필요하면 `tart set agent-mac --no-display-refit`.
+- refit 을 끄면 VM 창 비율이 화면과 다를 때 레터박스가 생긴다. 창 크기를 `{폭, 높이+28}`(제목 막대 28pt)로 맞추면 꽉 찬다: `osascript -e 'tell application "System Events" to tell window 1 of (first process whose unix id is <tart PID>) to set size to {1204, 781}'`.
 
 ## 네트워크
 기본 NAT(`VZNATNetworkDeviceAttachment`): 게스트 192.168.64.x, 게이트웨이·DNS 는 호스트 `bridge100`(192.168.64.1). 나가는 트래픽은 호스트 연결(VPN 포함)을 따른다. 같은 LAN 의 다른 기기는 게스트에 못 붙는다.
 - `--net-bridged=en0`: LAN 에 직접 붙음. `--net-softnet` + `--net-softnet-allow/block/expose`: 대역 제한·포트 노출. `--net-host`: 호스트하고만 통신.
 
 ## 초기화 · 백업
-- 손대지 않은 상태로 되돌리기: `tart delete agent-mac && tart clone ghcr.io/cirruslabs/macos-tahoe-base@sha256:65c3133a633fda8753cf1f71f2d55727792d534a2125b0032466563dcc8e58fd agent-mac && tart set agent-mac --cpu 4 --memory 16384`. digest 로 지정하면 캐시에서 바로 clone 한다(재다운로드 없음). `tart delete` 는 되돌릴 수 없으니 승인을 받는다.
+- 손대지 않은 상태로 되돌리기: `tart delete agent-mac && tart clone ghcr.io/cirruslabs/macos-tahoe-base@sha256:65c3133a633fda8753cf1f71f2d55727792d534a2125b0032466563dcc8e58fd agent-mac && tart set agent-mac --cpu 4 --memory 8192 --display 1204x753pt --no-display-refit`. digest 로 지정하면 캐시에서 바로 clone 한다(재다운로드 없음). `tart delete` 는 되돌릴 수 없으니 승인을 받는다. 띄운 뒤 위 "화면 해상도 바꾸기" 의 게스트 모드 적용까지 해야 초기값이 맞는다.
 - 백업: `tart clone agent-mac agent-mac-backup` — 같은 APFS 볼륨이라 블록을 공유해 처음엔 공간을 거의 안 쓴다. 디스크 자체 고장은 못 막으므로 그 대비는 `tart export` 를 다른 디스크에.
 
 ## 측정하지 않은 것
 - Tart VM 창을 닫거나(`--no-graphics`) 최소화한 상태에서 게스트의 headed 브라우저·CDP 가 정상 동작하는지.
 - `--capture-system-keys` 없이 VM 창에서 Caps Lock 한영 전환이 되는지.
 - 사내 VPN·`/etc/resolver` split-DNS 가 게스트 DNS 조회에 적용되는지.
+- VM 을 재시작했을 때 Tart 가 창을 맞춘 크기로 다시 여는지.
 
 ## 함께 쓰는 자원
 다른 VM(colima 등)과 메모리를 나눠 쓴다. 띄우기 전 `memory_pressure | tail -1` 과 `sysctl -n vm.swapusage` 로 여유를 본다.
