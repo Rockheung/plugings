@@ -44,6 +44,7 @@ chrome-devtools-mcp 대응표 · `tirno-sw-override` · `tirno-origin-relay`)은
 여기로 복사해 오지 않는다. 스킬은 도구 버전과 같이 움직여야 하는데, 두 마켓플레이스에
 올리면 낡은 쪽이 조용히 굳는다. 도구를 내는 레포가 스킬도 내는 것이 정본을 하나로 둔다.
 | **[i-will-do-it-later](./plugins/i-will-do-it-later)** | 일을 멈추자는 말을 꺼낸 세션을 **끝낸다**. 미룰 일을 기록하고 정리한 뒤, 컴파일한 바이너리가 자기 herdr pane 에 `/exit` 를 보낸다. |
+| **[tart-vm](./plugins/tart-vm)** | Tart 로 띄운 **에이전트 전용 macOS VM** 운용. 세션 밖 실행(`nohup`), `--no-usb-accessories` 로 게스트 한글 입력 복구, `tart exec`(GUI 세션·종료 코드·`-i` stdin·바이너리 전송), 게스트 화면 캡처, 네트워크 모드, digest clone 초기화. |
 
 ## 철학
 
