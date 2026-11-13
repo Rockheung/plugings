@@ -71,6 +71,7 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 
 ## 네트워크
 기본 NAT(`VZNATNetworkDeviceAttachment`): 게스트 192.168.64.x, 게이트웨이·DNS 는 호스트 `bridge100`(192.168.64.1). 나가는 트래픽은 호스트 연결(VPN 포함)을 따른다. 같은 LAN 의 다른 기기는 게스트에 못 붙는다.
+- 호스트의 `/etc/resolver` split-DNS 가 게스트에도 그대로 적용된다. 게스트 `scutil --dns` 에는 `192.168.64.1` 하나만 보이지만, 호스트가 그 질의를 자기 리졸버 규칙으로 풀어 준다. 사내 도메인 7개 존의 호스트 10개를 호스트·게스트에서 `dscacheutil -q host` 로 조회한 결과와 TCP 접속 3건이 모두 같았다(호스트에서 안 풀리는 이름은 게스트에서도 안 풀림).
 - `--net-bridged=en0`: LAN 에 직접 붙음. `--net-softnet` + `--net-softnet-allow/block/expose`: 대역 제한·포트 노출. `--net-host`: 호스트하고만 통신.
 
 ## 초기화 · 백업
@@ -80,7 +81,6 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 ## 측정하지 않은 것
 - Tart VM 창을 닫거나(`--no-graphics`) 최소화한 상태에서 게스트의 headed 브라우저·CDP 가 정상 동작하는지.
 - `--capture-system-keys` 없이 VM 창에서 Caps Lock 한영 전환이 되는지.
-- 사내 VPN·`/etc/resolver` split-DNS 가 게스트 DNS 조회에 적용되는지.
 - VM 을 재시작했을 때 Tart 가 창을 맞춘 크기로 다시 여는지.
 
 ## 함께 쓰는 자원
