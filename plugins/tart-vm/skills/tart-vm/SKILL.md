@@ -91,7 +91,8 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 - `--net-bridged=en0`: LAN 에 직접 붙음. `--net-softnet` + `--net-softnet-allow/block/expose`: 대역 제한·포트 노출. `--net-host`: 호스트하고만 통신.
 
 ## 초기화 · 백업
-- 손대지 않은 상태로 되돌리기: `tart delete agent-mac && tart clone ghcr.io/cirruslabs/macos-tahoe-base@sha256:65c3133a633fda8753cf1f71f2d55727792d534a2125b0032466563dcc8e58fd agent-mac && tart set agent-mac --cpu 4 --memory 8192 --display 1204x753pt --no-display-refit`. digest 로 지정하면 캐시에서 바로 clone 한다(재다운로드 없음). `tart delete` 는 되돌릴 수 없으니 승인을 받는다. 띄운 뒤 위 "화면 해상도 바꾸기" 의 게스트 모드 적용까지 해야 초기값이 맞는다.
+- 손대지 않은 상태로 되돌리기: `tart delete agent-mac && tart clone ghcr.io/cirruslabs/macos-tahoe-base@sha256:65c3133a633fda8753cf1f71f2d55727792d534a2125b0032466563dcc8e58fd agent-mac && tart set agent-mac --cpu 4 --memory 8192 --display 1204x753pt --no-display-refit`. digest 로 지정하면 캐시에서 바로 clone 한다(재다운로드 없음). `tart delete` 는 되돌릴 수 없으니 승인을 받는다. 띄운 뒤 위 "화면 해상도 바꾸기" 의 게스트 모드 적용과 시간대 설정까지 해야 초기값이 맞는다.
+- 시간대: 이미지 기본은 GMT 다. `tart exec agent-mac sudo systemsetup -settimezone Asia/Seoul` (`### Error:-99` 로그가 찍혀도 적용된다. 확인은 `sudo systemsetup -gettimezone`·`date`). 재부팅 뒤 유지된다. 시각은 네트워크 시간(`Network Time: On`)으로 호스트와 초 단위까지 같았다. 자동 시간대(`com.apple.timezone.auto` `Active`)는 꺼도 재부팅 때 1 로 돌아오지만 시간대는 바뀌지 않았다.
 - 백업: `tart clone agent-mac agent-mac-backup` — 같은 APFS 볼륨이라 블록을 공유해 처음엔 공간을 거의 안 쓴다. 디스크 자체 고장은 못 막으므로 그 대비는 `tart export` 를 다른 디스크에.
 
 ## 측정하지 않은 것
