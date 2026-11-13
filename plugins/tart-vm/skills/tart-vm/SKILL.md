@@ -29,7 +29,7 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 - `--capture-system-keys`: VM 창 포커스 중 Cmd+Tab 등이 게스트로 간다. **Ctrl+Space(입력 소스 전환)는 이 옵션으로도 호스트가 먼저 처리한다**(호스트 입력 소스만 바뀌고 게스트는 그대로, 실측). 게스트 한영 전환은 Caps Lock 전환을 쓴다(게스트 System Settings → Keyboard → Text Input → Edit… → All Input Sources).
 - `tart exec` 는 부팅 직후 Guest Agent 가 뜨기 전까지 `is the Tart Guest Agent running?` 으로 실패한다. 위 루프로 기다린다.
 - 멈추기: `tart stop agent-mac` (정상 종료). CPU·메모리·화면 설정 변경은 꺼진 상태에서만: `tart set agent-mac --memory 8192`.
-- 실행 중 외장 디스크를 뽑으면 게스트 디스크가 깨질 수 있다. 꺼져 있을 때는 그냥 뽑아도 된다(볼륨의 Spotlight·fseventsd 끔).
+- 실행 중 외장 디스크를 뽑으면 게스트 디스크가 깨질 수 있다. 꺼져 있을 때는 그냥 뽑아도 된다(볼륨의 Spotlight·fseventsd 끔). 실행 중에 빠졌으면 아래 "디스크가 빠졌을 때" 절차를 따른다.
 
 ## 게스트에서 명령 실행
 | 방법 | 세션 | 특징 |
@@ -48,6 +48,7 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 - 게스트 안 캡처: `tart exec agent-mac screencapture -x /tmp/s.png` 후 위 방법으로 꺼낸다. 창 내용까지 찍힌다(게스트 픽셀 그대로, 1204×753pt 면 2408×1506, 권한 창 없음).
 - 사람이 조작: 화면 공유 `open vnc://$(tart ip agent-mac)` (admin/admin). 한글·단축키는 화면 공유 쪽이 잘 된다.
 - VM 창 위치: `osascript -e 'tell application "System Events" to get {position, size} of window 1 of (first process whose unix id is <tart PID>)'` → 호스트 `screencapture -x -R x,y,w,h`.
+- VM 창이 다른 창에 가려져 있으면 `-R` 은 앞의 창을 찍는다. 창을 앞으로 가져오지 않고 찍으려면 `CGWindowListCopyWindowInfo` 로 tart PID 의 이름이 `agent-mac` 인 창 번호를 찾아 `screencapture -x -o -l<창 번호>` 로 찍는다(같은 PID 에 높이 39 짜리 메뉴 막대 창이 여럿 있으니 이름으로 고른다).
 
 ### 화면 해상도 바꾸기
 - `--display WxHpt` 의 pt 는 **호스트 메인 화면 배율**을 따른다(소스 `Platform/Darwin.swift` `graphicsDevice()`: `VZMacGraphicsDisplayConfiguration(for: NSScreen.main, sizeInPoints:)`). 2배율 호스트면 HiDPI 로 그려진다. `px` 는 72ppi 1배율.
@@ -68,6 +69,20 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
   `0` 이 나오면 성공. 확인은 게스트 `screencapture` 결과 픽셀 크기로.
 - `displayRefit`(기본 켜짐)은 VM 창 크기에 맞춰 게스트 해상도를 바꾼다. 고정 해상도가 필요하면 `tart set agent-mac --no-display-refit`.
 - refit 을 끄면 VM 창 비율이 화면과 다를 때 레터박스가 생긴다. 창 크기를 `{폭, 높이+28}`(제목 막대 28pt)로 맞추면 꽉 찬다: `osascript -e 'tell application "System Events" to tell window 1 of (first process whose unix id is <tart PID>) to set size to {1204, 781}'`.
+
+## 디스크가 빠졌을 때 · 손상 확인
+실행 중 외장 디스크가 빠졌다가 다시 꽂힌 경우(실측):
+- 빠져 있는 동안: 모든 `tart` 명령이 `TART_HOME is invalid` 로 멈춘다. `tart run` 프로세스는 살아 있고 VM 창도 게스트 화면을 계속 보여 준다(메모리에 있는 부분으로 버팀).
+- 다시 꽂으면: `tart list` 는 `stopped` 로 보이는데 옛 `tart run` 프로세스는 그대로 살아 있다. 실행 여부를 볼륨 안 잠금으로 판단하는데 재마운트로 잠금이 풀린 것으로 보인다. 그래서 **`tart stop` 이 듣지 않는다.**
+- 복구: 옛 프로세스를 PID 로 종료(`ps -o pid,comm,args -ax | grep '[l]ibexec/tart'` 로 확인 → 별도 호출에서 `kill <PID>`) → 다시 `nohup tart run …`. 옛 프로세스를 둔 채 새로 띄우지 않는다(같은 `disk.img` 를 두 프로세스가 잡음).
+
+손상 확인은 층마다 다르다:
+| 층 | 방법 | 정상 판정 |
+|---|---|---|
+| 호스트 외장 볼륨 | `diskutil verifyVolume /Volumes/tart` | 종료 코드 0 |
+| 게스트 파일시스템 구조 | `tart exec agent-mac diskutil verifyVolume /` (실행 중에도 스냅샷으로 검사) | 종료 코드 0, `appears to be OK` |
+| 게스트 시스템 영역 | `tart exec agent-mac sh -c 'diskutil apfs list; csrutil authenticated-root status'` | 시스템 스냅샷 `Sealed: Yes`, Authenticated Root enabled. 봉인 볼륨은 부팅 때 해시로 검증되므로 부팅되면 원본 그대로 |
+| 게스트 사용자 데이터 | 도구 없음 | APFS 는 메타데이터에만 체크섬이 있어 파일 내용 손상은 못 잡는다. 그 파일을 쓰는 앱으로 열어 보거나 원본 해시와 비교 |
 
 ## 네트워크
 기본 NAT(`VZNATNetworkDeviceAttachment`): 게스트 192.168.64.x, 게이트웨이·DNS 는 호스트 `bridge100`(192.168.64.1). 나가는 트래픽은 호스트 연결(VPN 포함)을 따른다. 같은 LAN 의 다른 기기는 게스트에 못 붙는다.
