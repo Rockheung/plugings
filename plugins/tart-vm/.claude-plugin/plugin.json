@@ -1,7 +1,7 @@
 {
   "name": "tart-vm",
   "description": "Tart 로 띄운 에이전트 전용 macOS VM 을 운용하는 스킬. 세션 밖 실행(nohup), --no-usb-accessories 로 게스트 한글 입력 복구, Ctrl+Space 는 --capture-system-keys 로도 호스트가 가로챈다는 실측, tart exec(virtio-vsock·GUI 세션·종료 코드·stdin -i·바이너리 전송), 게스트 화면 캡처, 네트워크 모드, digest clone 초기화·APFS clone 백업.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "homepage": "https://github.com/Rockheung/plugings",
   "author": {
     "name": "Rockheung"
