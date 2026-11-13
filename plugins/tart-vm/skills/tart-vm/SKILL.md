@@ -27,6 +27,7 @@ for i in $(seq 1 30); do timeout 5 tart exec agent-mac true 2>/dev/null && break
 - **반드시 `nohup … &` 로 세션 밖에서 띄운다.** Claude Code 의 `run_in_background` 작업으로 띄우면 메모리 압박 때 Claude Code 가 작업을 죽이고 VM 도 강제 종료된다(게스트 비정상 종료). 띄운 뒤 `ps -o pid,ppid -p <tart PID>` 로 부모가 1 인지 본다.
 - **`--no-usb-accessories` 필수.** 빼면 Tart 가 USB 키보드와 Mac 키보드를 둘 다 붙이고(소스 `Platform/Darwin.swift` `keyboards()`), 그 상태에서는 게스트가 두벌식이어도 VM 창 타이핑이 영문으로 들어간다. 이 옵션이면 키보드가 `Virtual Keyboard` 하나만 붙고 한글이 입력된다.
 - `--capture-system-keys`: VM 창 포커스 중 Cmd+Tab 등이 게스트로 간다. **Ctrl+Space(입력 소스 전환)는 이 옵션으로도 호스트가 먼저 처리한다**(호스트 입력 소스만 바뀌고 게스트는 그대로, 실측). 게스트 한영 전환은 Caps Lock 전환을 쓴다(게스트 System Settings → Keyboard → Text Input → Edit… → All Input Sources).
+- 파일 공유 폴더: `--dir=<이름>:<호스트 경로>` 를 붙이면 게스트 `/Volumes/My Shared Files/<이름>` 에 자동으로 올라온다(virtiofs, 기본 읽기·쓰기, `:ro` 로 읽기 전용). 호스트↔게스트 양방향 쓰기·읽기 확인. 소유자는 서로 상대 쪽 사용자로 보인다(호스트 파일은 게스트에서 `admin`, 게스트 파일은 호스트에서 호스트 사용자). 게스트 시간대는 UTC 다. 작성자 환경: `--dir=share:/Volumes/tart/share`.
 - `tart exec` 는 부팅 직후 Guest Agent 가 뜨기 전까지 `is the Tart Guest Agent running?` 으로 실패한다. 위 루프로 기다린다.
 - 멈추기: `tart stop agent-mac` (정상 종료). CPU·메모리·화면 설정 변경은 꺼진 상태에서만: `tart set agent-mac --memory 8192`.
 - 실행 중 외장 디스크를 뽑으면 게스트 디스크가 깨질 수 있다. 꺼져 있을 때는 그냥 뽑아도 된다(볼륨의 Spotlight·fseventsd 끔). 실행 중에 빠졌으면 아래 "디스크가 빠졌을 때" 절차를 따른다.
