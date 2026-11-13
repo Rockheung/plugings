@@ -1,4 +1,4 @@
-# claude-cli-spec
+# cli-command-tree
 
 **세션 시작마다 `claude` CLI 의 명령 이름 트리를 컨텍스트에 넣는다.**
 
@@ -44,7 +44,7 @@ JSON 이 아니라 평문이다 — 컨텍스트에 들어가는 텍스트라 �
 
 ## 캐시가 요점이다
 
-`claude --version` 이 캐시 키다. `~/.cache/claude-cli-spec/<version>.txt`
+`claude --version` 이 캐시 키다. `~/.cache/cli-command-tree/<version>.txt`
 (`$XDG_CACHE_HOME` 존중, 원자적 rename 으로 교체, 지난 버전 파일은 자동 정리).
 
 - **평소**: 파일 읽기 한 번 — 실측 **~35ms**

@@ -194,7 +194,7 @@ export function countCommands(root) {
 
 export function cacheDir() {
   const base = process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache')
-  return path.join(base, 'claude-cli-spec')
+  return path.join(base, 'cli-command-tree')
 }
 
 const cacheFile = (version) => path.join(cacheDir(), `${version.replace(/[^\w.-]/g, '_')}.txt`)
