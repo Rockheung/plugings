@@ -94,6 +94,11 @@
       "name": "ponytail",
       "source": "./plugins/ponytail",
       "description": "Dietrich Gebert 의 ponytail(lazy senior dev 모드, MIT) 4.9.0 을 그대로 가져와 두 문장을 고친 포크. 가장 게으른 해법의 기준을 \"동작한다\"에서 \"명시된 요구(데이터가 늘어나는 방식 포함)를 전부 만족한다\"로, 가장 짧은 diff 의 기준을 \"원인을 없앤다\"로 바꿨다. 증상만 없애거나 실행할 때마다 전체를 다시 만드는 수정은 미완성으로 본다."
+    },
+    {
+      "name": "eco-mode",
+      "source": "./plugins/eco-mode",
+      "description": "이 세션은 오케스트레이터로 남고, 구현·조사·수정은 herdr 새 탭의 opencode mini(deepseek flash)에, 적대적 리뷰는 advisor 에 맡기는 작업 방식. 일꾼은 opencode mini -m 으로 띄운다(출력이 전부 읽힌다). mini 는 일하는 동안에도 herdr 상태가 idle 이라 agent prompt --wait 대신 결과 파일의 끝 표지(ECO-DONE)와 blocked 를 함께 기다린다. 항목이 여럿이면 일꾼이 subagent 도구로 항목마다 서브에이전트를 띄우게 하는 지시문 절, 리뷰→조치 루프의 종료 조건 포함."
     }
   ]
 }
