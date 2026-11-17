@@ -81,6 +81,15 @@ emit() {  # $1=decision $2=reason
     '{ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: $decision, permissionDecisionReason: $reason } }'
 }
 
+# --- plain push of a non-main branch -> allow without dialog ------------------
+if [[ "$COMMAND" =~ ^git\ push( |$) ]] \
+   && [[ ! "$COMMAND" =~ (--force|--delete|--mirror|[[:space:]]-[a-zA-Z]*[fd][a-zA-Z]*([[:space:]]|$)|[[:space:]][+:]|[\;\&\|\`\$\<\>\(\)]) ]] \
+   && [[ ! "$COMMAND" =~ (^|[[:space:]/:])(main|master)([[:space:]]|$) ]] \
+   && [[ ! "$(git branch --show-current 2>/dev/null)" =~ ^(main|master)$ || "$COMMAND" =~ push[[:space:]]+[^-][^[:space:]]*[[:space:]]+[^-] ]]; then
+  emit "allow" "non-main branch push -> no dialog"
+  exit 0
+fi
+
 # --- no GUI available (non-macOS / no osascript) -> apply lazy default --------
 if [ "$(uname)" != "Darwin" ] || ! command -v osascript >/dev/null 2>&1; then
   emit "$DEFAULT_DECISION" "no native dialog available -> lazy default $DEFAULT_DECISION"

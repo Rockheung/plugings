@@ -13,6 +13,7 @@
 |---|---|---|
 | **DENY** (비가역/금지) | `sudo`, `pkill`, `git reset --hard`, `git clean -f`, `git checkout --`, `gh pr merge` | **deny** |
 | **ALLOW** (가역/무영향) | `kill`, `killall`, `git push`, `git rebase -i`, `git add -i` | **allow** |
+| **즉시 통과** | main·master 가 아닌 브랜치로 가는 단순 `git push` (force·삭제·`+`/`:` refspec·명령 연결 없음) | 다이얼로그 없이 **allow** |
 
 매칭되면 15초 macOS 다이얼로그(osascript)를 띄우고, 사용자가 누르면 그 결정을, **안 누르면 위 기본값**을 PreToolUse `permissionDecision` 으로 출력한다. 매칭 안 되는 명령은 아무 의견도 내지 않고(`exit 0`) 정상 권한 흐름으로 넘긴다.
 
