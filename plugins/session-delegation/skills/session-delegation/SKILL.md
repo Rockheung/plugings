@@ -173,6 +173,24 @@ so the request was rejected` 로 거절되고, 모델은 그 일을 빼고 답�
 모델 이름은 `opencode models` 로 확인한다. 같은 모델 계열이 제공자마다 따로 있어(API 제공자와 로컬 프록시 등) 이름만 보고 고르면 엉뚱한
 제공자로 간다.
 
+### 항목이 여럿이면 opencode 가 서브에이전트를 띄우게 한다
+
+opencode 는 시키지 않으면 서브에이전트를 쓰지 않는다. 지시문에 "일하는 방식" 절을 두고 항목마다 서브에이전트를 띄우라고 적는다.
+파일 세 개의 줄 수를 세라는 같은 일감으로, 절이 없으면 셸로 직접 셌고, 절을 넣으면 파일마다 `subagent` 도구(에이전트 `general`)를
+한 번씩 불러 맡긴 뒤 `wc -l` 을 직접 다시 돌려 대조했다(`opencode run --format json` 의 도구 호출로 확인).
+
+```md
+## 일하는 방식
+- 항목마다 subagent 도구로 서브에이전트(general)를 하나씩 띄워 맡긴다. 직접 하지 않는다.
+- 서브에이전트에게는 대상 경로, 손댈 범위, 답할 형식을 적어 준다.
+- 서브에이전트 결과를 그대로 옮기지 않고, 검사 명령을 직접 다시 돌려 대조한 뒤 답한다.
+- subagent 도구가 없으면 그 사실만 답하고 멈춘다.
+```
+
+- 도구 이름은 `subagent` 다. 지시문에 `task` 라고 적어도 opencode 가 `subagent` 로 알아듣고 썼지만, 처음부터 `subagent` 로 적는다.
+- 서브에이전트는 부모 세션의 자식 세션(`parentID`)으로 남고, 모델은 부모에 준 모델을 그대로 쓴다(`-m deepseek/deepseek-flash` 로 띄운
+  부모의 서브에이전트가 `deepseek-flash` 로 돌았다, `opencode session export <서브에이전트 세션 ID>`).
+
 ## 내 Bash 로 `claude` 를 직접 띄우지 않는다 — nested 로 잡힌다
 
 Claude Code 는 자기가 낳은 서브프로세스(Bash·PowerShell·Monitor 도구, 훅, 상태줄)에
