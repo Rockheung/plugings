@@ -46,6 +46,7 @@ chrome-devtools-mcp 대응표 · `tirno-sw-override` · `tirno-origin-relay`)은
 | **[i-will-do-it-later](./plugins/i-will-do-it-later)** | 일을 멈추자는 말을 꺼낸 세션을 **끝낸다**. 미룰 일을 기록하고 정리한 뒤, 컴파일한 바이너리가 자기 herdr pane 에 `/exit` 를 보낸다. |
 | **[tart-vm](./plugins/tart-vm)** | Tart 로 띄운 **에이전트 전용 macOS VM** 운용. 세션 밖 실행(`nohup`), `--no-usb-accessories` 로 게스트 한글 입력 복구, `tart exec`(GUI 세션·종료 코드·`-i` stdin·바이너리 전송), 게스트 화면 캡처, 네트워크 모드, digest clone 초기화. |
 | **[ponytail](./plugins/ponytail)** | [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)(lazy senior dev 모드, MIT) 4.9.0 을 그대로 가져와 두 문장을 고친 **포크**. 가장 게으른 해법의 기준을 "동작한다"에서 "명시된 요구를 전부 만족한다(데이터가 늘어나는 방식 포함)"로, 가장 짧은 diff 의 기준을 "원인을 없앤다"로 바꿨다. |
+| **[eco-mode](./plugins/eco-mode)** | 이 세션은 **오케스트레이터**로 남고 구현·조사·수정은 herdr 새 탭의 `opencode mini -m deepseek/deepseek-flash` 에, 적대적 리뷰는 `advisor` 에 맡긴다. 완료는 결과 파일의 끝 표지(`ECO-DONE`)와 `blocked` 로 판정, 일꾼이 `subagent` 도구로 항목마다 서브에이전트를 띄우게 하는 지시문 절, 리뷰→조치 종료 조건. |
 
 ## 철학
 
