@@ -7,6 +7,7 @@ description: |
   띄우기 전에 읽는다.
   "저쪽 서버에서 돌려줘", "여러 개 동시에 시켜", "다른 세션한테 물어봐", "원격에 붙어서
   작업" 같은 요청이 오면 해당한다. 결과를 받은 뒤 그대로 옮기지 않고 검증하는 절차도 담는다.
+argument-hint: "[mini|tui|run]"
 ---
 
 # session-delegation
@@ -132,7 +133,15 @@ herdr agent start <name> --kind claude --pane <pane id> -- \
 # 3. 실제로 auto 로 떴는지 확인하고, 아니면 shift+tab 으로 돌린다 — 아래 절
 ```
 
-## opencode 에 맡길 때 — 항상 `opencode mini` 로 띄운다
+## opencode 에 맡길 때 — 기본은 `opencode mini`
+
+띄우는 방식은 스킬 인자로 고른다(받은 인자: `$ARGUMENTS`). 인자가 비어 있으면 `mini` 다.
+
+| 인자 | 띄우는 방식 |
+|---|---|
+| (없음) · `mini` | 이 절의 `opencode mini` 절차 |
+| `tui` | 아래 "`tui`: 최상위 TUI" |
+| `run` | 아래 "`run`: `opencode run`" |
 
 ```sh
 herdr agent start <name> --kind opencode --pane <pane id> -- mini -m <provider/model>
@@ -172,6 +181,39 @@ mini 세션에 다시 `agent prompt` 로 보낸다.
 
 모델 이름은 `opencode models` 로 확인한다. 같은 모델 계열이 제공자마다 따로 있어(API 제공자와 로컬 프록시 등) 이름만 보고 고르면 엉뚱한
 제공자로 간다.
+
+### `tui`: 최상위 TUI
+
+최상위 TUI 의 모델은 pane 환경 변수 `OPENCODE_CONFIG_CONTENT` 로 주고, **`--standalone` 을 함께 준다.** 최상위 TUI 는 기본으로
+백그라운드 서버(`opencode serve --service`)에 붙는데, 그때는 pane 환경 변수가 무시된다. `{"model":"cliproxy/grok-3-mini-fast"}` 를
+받은 TUI 프로세스가 서버에 붙어서는 다른 모델(DeepSeek V4.1 Flash)로 떴고, 같은 pane 에서 `--standalone` 으로 띄우자 Grok 3 mini fast 로
+떴다. 그 상태로 `agent prompt --wait` 가 `done` 으로 돌아왔다.
+
+```sh
+herdr pane split --current --direction right --cwd <경로> --no-focus \
+  --env 'OPENCODE_CONFIG_CONTENT={"model":"<provider/model>"}'
+herdr agent start <name> --kind opencode --pane <pane id> -- --standalone --auto
+# 화면 하단이 "Build auto · <모델 표시 이름>" 인지 확인한다
+```
+
+이렇게 띄워도 읽기는 위 표대로 보이는 화면까지다. herdr 상태는 `working` → `done` 으로 잡혀 `agent prompt --wait` 를 쓸 수 있다. 긴 결과는 파일에 쓰게 해서 받는다.
+
+### `run`: `opencode run`
+
+pane 에서 `opencode run` 을 일반 명령으로 돌리고 끝 표지로 기다린다. 진행은 그 pane 에 보인다. 여러 턴에 걸친 일은 `-s` 로
+세션 ID 를 직접 정해 잇는다. 그 ID 의 세션이 없으면 만들고, 있으면 이어 간다. ID 는 `ses_` 로 시작해야 한다(아니면
+`Expected a string starting with "ses"` 로 실패한다).
+
+```sh
+herdr pane run <pane id> 'opencode run -m <provider/model> --auto -s ses_<이름> --title "<제목>" "$(cat <프롬프트 파일>)" 2>&1 | tee <로그>; echo "OPENCODE-EXIT=$?"'
+herdr pane wait-output <pane id> --match "OPENCODE-EXIT=" --timeout <ms>
+# 다음 턴: 같은 -s ses_<이름> 으로 다시 run 한다
+```
+
+`--auto` 는 명시적으로 막힌 것 외의 권한을 묻지 않고 승인한다(`opencode run --help`). 쓰기 범위는 프롬프트에 경로로 못박는다.
+**`--auto` 를 빼면 실패가 드러나지 않는다.** `permission` 에서 `ask` 인 도구는 `This non-interactive run cannot ask the user for permission,
+so the request was rejected` 로 거절되고, 모델은 그 일을 빼고 답을 이어 가며 종료 코드는 0 이다(`"bash": "ask"` 로 실측). 설정에
+`permission` 키가 없으면 bash 는 묻지 않고 실행됐다.
 
 ### 항목이 여럿이면 opencode 가 서브에이전트를 띄우게 한다
 
