@@ -139,9 +139,23 @@ opencode 2.2.0 의 대화형 실행 방식 둘은 herdr(0.9.5)로 맡기기에 �
 | `herdr agent start <name> --kind opencode --pane <pane id> -- …` | 출력 읽기 | herdr 상태 | 권한 |
 |---|---|---|---|
 | `mini -m <provider/model>` | 셸 명령줄부터 96줄 전부 읽힌다 | 응답하는 동안에도 `idle` 이다. `agent prompt --wait` 는 5초 뒤 `agent_prompt_stalled` 로 끝나 완료를 알 수 없다. 권한 대화상자는 `blocked` 로 잡힌다 | `--auto` 가 없다(`Unrecognized flag: --auto in command opencode mini`, `opencode --auto mini` 로 줘도 같다) |
-| `--auto` (최상위 TUI) | 일하는 중에는 `agent_not_idle` 로 거부되고, `done` 뒤에도 `--lines 300` 이 보이는 화면 20줄만 돌려준다 | `working` → `done` 으로 잡힌다 | `--auto` 를 받는다. `-m` 이 없어(`Unrecognized flag: -m`) 모델은 설정 기본값으로 간다 |
+| `--auto` (최상위 TUI) | 일하는 중에는 `agent_not_idle` 로 거부되고, `done` 뒤에도 `--lines 300` 이 보이는 화면 20줄만 돌려준다 | `working` → `done` 으로 잡힌다 | `--auto` 를 받는다. `-m` 이 없다(`Unrecognized flag: -m`) — 모델은 아래처럼 준다 |
 
-그래서 pane 에서 `opencode run` 을 일반 명령으로 돌리고 끝 표지로 기다린다. 진행은 그 pane 에 보인다. 여러 턴에 걸친 일은 `-s` 로
+최상위 TUI 의 모델은 pane 환경 변수 `OPENCODE_CONFIG_CONTENT` 로 주고, **`--standalone` 을 함께 준다.** 최상위 TUI 는 기본으로
+백그라운드 서버(`opencode serve --service`)에 붙는데, 그때는 pane 환경 변수가 무시된다. `{"model":"cliproxy/grok-3-mini-fast"}` 를
+받은 TUI 프로세스가 서버에 붙어서는 다른 모델(DeepSeek V4.1 Flash)로 떴고, 같은 pane 에서 `--standalone` 으로 띄우자 Grok 3 mini fast 로
+떴다. 그 상태로 `agent prompt --wait` 가 `done` 으로 돌아왔다.
+
+```sh
+herdr pane split --current --direction right --cwd <경로> --no-focus \
+  --env 'OPENCODE_CONFIG_CONTENT={"model":"<provider/model>"}'
+herdr agent start <name> --kind opencode --pane <pane id> -- --standalone --auto
+# 화면 하단이 "Build auto · <모델 표시 이름>" 인지 확인한다
+```
+
+이렇게 띄워도 읽기는 위 표대로 보이는 화면까지다. 긴 결과는 파일에 쓰게 해서 받는다.
+
+결과를 화면·로그로 받으려면 pane 에서 `opencode run` 을 일반 명령으로 돌리고 끝 표지로 기다린다. 진행은 그 pane 에 보인다. 여러 턴에 걸친 일은 `-s` 로
 세션 ID 를 직접 정해 잇는다. 그 ID 의 세션이 없으면 만들고, 있으면 이어 간다. ID 는 `ses_` 로 시작해야 한다(아니면
 `Expected a string starting with "ses"` 로 실패한다).
 
