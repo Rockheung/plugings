@@ -129,5 +129,5 @@ herdr pane close <pane id>      # 내가 만든 pane 만 닫는다
 - `-- mini -m opengateway/deepseek/deepseek-v4.1-flash-eco` 와 `… flash-ultrafast` 가 각각 새 탭에서 "Build · deepseek/deepseek-v4.1-flash-eco · OpenGateway", "Build · deepseek/deepseek-v4.1-flash-ultrafast · OpenGateway" 로 떴다.
 - 두 모델의 mini 일꾼이 지시문 파일을 읽고 `tirno` 로 외부 사이트를 열어 값을 읽은 뒤, 결과 파일 마지막 줄에 `ECO-DONE` 을 썼다(호출 16회·28회). 이 과정에서 `blocked` 는 없었다.
 - 두 모델의 mini 일꾼이 파일 3개 각각에 `subagent`(general)를 하나씩 띄워 줄 수를 구했고, 보고한 값이 126·19·10 으로 `wc -l` 과 일치했다. 자식 세션 3개의 `parentID` 가 부모 세션이고 모델이 부모와 같았으며 `outcome` 이 `succeeded` 였다. 세 자식 세션은 2~3ms 간격으로 생성돼 약 1초 겹쳤다.
-- 같은 두 일꾼이 서브에이전트 둘을 한 턴에서 동시에 띄워 서로 다른 파일 두 개를 고치게 했고, 두 파일 모두 지시한 내용이 됐다. 두 일꾼 모두 429·529 는 0회였다. 429 가 나는 동시 요청 수는 재지 않았다.
+- 같은 두 일꾼이 서브에이전트 둘을 한 턴에서 동시에 띄워 서로 다른 파일 두 개를 고치게 했고, 두 파일 모두 지시한 내용이 됐다. 두 일꾼 모두 429·529 는 0회였다. 429·529 가 났을 때의 대처 절차는 시험하지 않았다.
 - `opencode session export` 의 `info.model` 은 `id` 가 `deepseek/deepseek-v4.1-flash-eco`, `providerID` 가 `opengateway` 로 나뉘어 있다.
