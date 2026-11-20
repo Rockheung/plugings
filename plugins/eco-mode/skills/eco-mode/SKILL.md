@@ -1,6 +1,6 @@
 ---
 name: eco-mode
-description: 이 세션이 오케스트레이터가 되어 구현·조사·수정을 herdr 새 탭의 opencode(모델은 인자로 고른다: 현재 버전 · 내돈내산 · 내돈내산 울트라패스트)에 맡기고, 적대적 리뷰는 advisor 에 맡기는 작업 방식. "eco-mode 로 해", "deepseek flash 에 맡겨", "오케스트레이터로 진행해" 라고 하거나, Agent 도구의 서브에이전트를 띄우려 할 때 대신 쓴다. 탭을 띄워 모델을 고정하는 명령, 일을 넘기고 결과를 받는 루프, 리뷰→조치 반복의 종료 조건을 담는다.
+description: 이 세션이 오케스트레이터가 되어 구현·조사·수정을 herdr 새 탭의 opencode(모델은 인자로 고른다: bro · eco · angry)에 맡기고, 적대적 리뷰는 advisor 에 맡기는 작업 방식. "eco-mode 로 해", "deepseek flash 에 맡겨", "오케스트레이터로 진행해" 라고 하거나, Agent 도구의 서브에이전트를 띄우려 할 때 대신 쓴다. 탭을 띄워 모델을 고정하는 명령, 일을 넘기고 결과를 받는 루프, 리뷰→조치 반복의 종료 조건을 담는다.
 ---
 
 # eco-mode
@@ -17,13 +17,13 @@ Agent 도구의 서브에이전트는 쓰지 않는다. herdr 조작의 일반 �
 
 ## 인자: 일꾼 모델 고르기
 
-스킬 인자 문자열로 일꾼 모델 `<모델>` 을 정한다. 인자에 `울트라패스트` 가 있으면 셋째 줄, `내돈내산` 이 있으면 둘째 줄이다. 그 밖의 경우(인자 없음, `현재 버전`)는 첫째 줄이다.
+스킬 인자 문자열로 일꾼 모델 `<모델>` 을 정한다. 인자에 단어 `angry` 가 있으면 셋째 줄, 단어 `eco` 가 있으면 둘째 줄이다. 그 밖의 경우(인자 없음, `bro`)는 첫째 줄이다.
 
-| 인자 | `<모델>` | 비용 부담 |
+| 모드 | `<모델>` | 비용 부담 |
 |---|---|---|
-| `현재 버전` (기본) | `deepseek/deepseek-flash` | 조직 부담(기존 `deepseek` 프로바이더) |
-| `내돈내산` | `opengateway/deepseek/deepseek-v4.1-flash-eco` | 사용자 본인 부담(OpenGateway 키) |
-| `내돈내산 울트라패스트` | `opengateway/deepseek/deepseek-v4.1-flash-ultrafast` | 사용자 본인 부담(OpenGateway 키) |
+| `bro` (기본) | `deepseek/deepseek-flash` | 조직 부담(기존 `deepseek` 프로바이더) |
+| `eco` | `opengateway/deepseek/deepseek-v4.1-flash-eco` | 사용자 본인 부담(OpenGateway 키) |
+| `angry` | `opengateway/deepseek/deepseek-v4.1-flash-ultrafast` | 사용자 본인 부담(OpenGateway 키) |
 
 - `opengateway/` 모델은 탭을 띄우기 전에 `opencode models | grep -x '<모델>'` 의 종료 코드가 0 인지 본다. 아니면 일꾼을 띄우지 않고 사용자에게 `opencode.json` 의 `opengateway` 프로바이더 설정을 묻는다.
 - 한 세션에서 일꾼 모델을 섞지 않는다. 인자가 바뀌면 사용자에게 알리고 기존 탭을 닫은 뒤 다시 띄운다.

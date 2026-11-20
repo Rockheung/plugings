@@ -16,4 +16,4 @@ herdr 0.9.5 · opencode 2.2.0 · 모델 `deepseek/deepseek-flash`, `opengateway/
 
 ## 인자
 
-일꾼 모델을 스킬 인자로 고른다: `현재 버전`(기본, `deepseek/deepseek-flash`), `내돈내산`(`flash-eco`), `내돈내산 울트라패스트`(`flash-ultrafast`). 내돈내산은 `opencode.json` 에 `opengateway` 프로바이더가 있어야 한다.
+일꾼 모델을 스킬 인자로 고른다: `bro`(기본, `deepseek/deepseek-flash`), `eco`(`flash-eco`), `angry`(`flash-ultrafast`). `eco`·`angry` 는 `opencode.json` 에 `opengateway` 프로바이더가 있어야 한다.
