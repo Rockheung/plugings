@@ -28,6 +28,18 @@ Agent 도구의 서브에이전트는 쓰지 않는다. herdr 조작의 일반 �
 - `opengateway/` 모델은 탭을 띄우기 전에 `opencode models | grep -x '<모델>'` 의 종료 코드가 0 인지 본다. 아니면 일꾼을 띄우지 않고 사용자에게 `opencode.json` 의 `opengateway` 프로바이더 설정을 묻는다.
 - 한 세션에서 일꾼 모델을 섞지 않는다. 인자가 바뀌면 사용자에게 알리고 기존 탭을 닫은 뒤 다시 띄운다.
 
+### angry 모드 사용 가이드
+
+`angry` 모델은 OpenGateway 가 저지연용으로 최적화해 카탈로그에 묶어 둔 변형이다. 일반 모델과 다른 점은 다음과 같다.
+
+- **동시 요청 한도:** API 키·모델별로 동시에 처리하는 요청 수에 상한이 있다(수치는 문서에 없다). 넘으면 즉시 HTTP 429(`concurrency_limit_exceeded`, `Retry-After` 포함)이고, 서비스가 과부하면 키 한도와 관계없이 HTTP 529(`overloaded`)다. 일꾼 지시문에 다음을 넣는다: 서브에이전트의 병렬 측정은 적게 띄우고, 429·529 가 나오면 `Retry-After` 만큼 기다려 최대 3번 다시 시도하며, 그래도 실패하면 멈추고 결과 파일 맨 위에 적는다. 한도 상향은 OpenGateway 지원팀에 요청한다.
+- **장문맥 할증:** 한 요청의 총 입력이 256K 토큰을 넘으면 그 요청 전체의 입력 가격이 2배다(캐시 읽기와 출력은 제외). 컨텍스트 창이 1,000,000 이므로 mini 화면의 사용률 표시가 25% 를 넘기 전에 항목을 나눠 새 세션에서 이어 간다.
+- **자동 프롬프트 캐싱:** 캐시 TTL 은 5분이고 캐시 읽기는 더 싼 가격으로 과금된다. 지시문은 고정 내용(규칙·검사 명령)을 앞에, 가변 내용(항목 본문)을 뒤에 둔다. 일꾼이 5분 넘게 멈추면 캐시가 만료된다.
+- **시간대별 가격:** 할인율이 시각에 따라 바뀐다. 띄우기 전에 아래 명령으로 `discount_percent`, `until`, `next` 를 본다.
+  `curl -s --max-time 10 https://apis.opengateway.ai/v1/models | jq '.data[]|select(.id=="deepseek/deepseek-v4.1-flash-ultrafast")|.pricing'`
+- **모델 상태:** 새로 쓰는 `-ultrafast` 모델은 카탈로그 `status` 가 `active` 인 것만 고른다. `deprecated` 는 유예 기간 동안만 쓸 수 있다.
+- **reasoning 출력:** 출력 토큰 상한을 아주 작게 주면(`max_tokens` 20) `content` 가 비고 reasoning 만 나오고 `finish_reason` 이 `length` 로 끝났다.
+
 ## 1. 일꾼 탭을 띄운다
 
 ```sh
