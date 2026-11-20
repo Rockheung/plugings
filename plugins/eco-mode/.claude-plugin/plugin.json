@@ -1,6 +1,6 @@
 {
   "name": "eco-mode",
-  "description": "이 세션은 오케스트레이터로 남고, 구현·조사·수정은 herdr 새 탭의 opencode mini(deepseek flash)에, 적대적 리뷰는 advisor 에 맡기는 작업 방식. 일꾼은 opencode mini -m 으로 띄운다(출력이 전부 읽힌다). mini 는 일하는 동안에도 herdr 상태가 idle 이라 agent prompt --wait 대신 결과 파일의 끝 표지(ECO-DONE)와 blocked 를 함께 기다린다. 항목이 여럿이면 일꾼이 subagent 도구로 항목마다 서브에이전트를 띄우게 하는 지시문 절, 리뷰→조치 루프의 종료 조건 포함.",
+  "description": "이 세션은 오케스트레이터로 남고, 구현·조사·수정은 herdr 새 탭의 opencode mini(모델은 인자로 고른다: 현재 버전 · 내돈내산 · 내돈내산 울트라패스트)에, 적대적 리뷰는 advisor 에 맡기는 작업 방식. 일꾼은 opencode mini -m 으로 띄운다(출력이 전부 읽힌다). mini 는 일하는 동안에도 herdr 상태가 idle 이라 agent prompt --wait 대신 결과 파일의 끝 표지(ECO-DONE)와 blocked 를 함께 기다린다. 항목이 여럿이면 일꾼이 subagent 도구로 항목마다 서브에이전트를 띄우게 하는 지시문 절, 리뷰→조치 루프의 종료 조건 포함.",
   "version": "1.0.0",
   "homepage": "https://github.com/Rockheung/plugings",
   "author": {
