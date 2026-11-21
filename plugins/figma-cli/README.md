@@ -41,7 +41,7 @@ fig call  <도구> [JSON]   도구를 이름으로 직접 호출
 `7327:61763` 을 준다. 생략하면 Figma 에서 지금 선택한 노드를 쓴다.
 
 옵션: `-o/--out FILE` · `--json` · `-d/--depth N` · `--hidden` · `--raw` ·
-`--no-cache` · `-h/--help`. 엔드포인트는 `FIG_MCP_URL` 로 바꾼다.
+`--timeout SEC` · `--no-cache` · `-h/--help`. 엔드포인트는 `FIG_MCP_URL` 로 바꾼다.
 
 ```bash
 fig tree                                          # 캔버스 목록
@@ -70,6 +70,14 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
   `hidden="true"` 라 기본 출력은 13개다. 전부 보려면 `--hidden`.
 - **`ctx` 는 스크린샷을 빼고 부른다**(`excludeScreenshot: true`). 텍스트 파이프에
   base64 는 쓸모가 없다. 그림이 필요하면 `fig shot`.
+- **서버가 붙인 안내 문구는 결과에서 뺀다.** 응답의 `content` 블록 중 첫 블록 뒤에서
+  `IMPORTANT:` 로 시작하는 것, 그리고 "missing code connect mappings" 를 담은 블록이
+  대상이다. 사용자 요청이 아닌 지시문이라 에이전트가 그대로 읽으면 따를 수 있다.
+  개수만 stderr 로 알리고 원문은 `--raw` 로 본다.
+- **`ctx` 가 코드 없이 Code Connect 안내만 받으면 오류다.** 종료 코드 1 과 함께
+  서버가 제시한 `disableCodeConnect: false` 로 다시 부르는 `fig call` 명령을 낸다.
+- **응답 대기 상한은 30초다.** 넘으면 도구 이름과 초를 알리는 오류로 끝나고,
+  `--timeout` 으로 바꾼다. 연결 거부(`ECONNREFUSED`)와는 다른 메시지다.
 - **`clientLanguages`/`clientFrameworks` 는 옵션으로 열지 않았다.** 스키마 설명이
   로깅 전용이라 했고, `vue` 와 `unknown` 으로 같은 노드를 불러 출력이 바이트까지
   동일한 것을 확인했다. 항상 `unknown` 을 보낸다.
