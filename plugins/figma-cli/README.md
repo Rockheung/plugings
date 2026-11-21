@@ -76,7 +76,8 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
   안내이면 데이터가 없는 응답이다. 사용자 요청이 아닌 지시문이라 에이전트가 그대로 읽으면
   따를 수 있다. 개수만 stderr 로 알리고 원문은 `--raw` 로 본다.
 - **`ctx` 가 코드 없이 Code Connect 안내만 받으면 오류다.** 종료 코드 1 과 함께
-  서버가 제시한 `disableCodeConnect: false` 로 다시 부르는 `fig call` 명령을 낸다.
+  `forceCode: true` 로 다시 부르는 `fig call` 명령을 낸다. 안내문이 시키는
+  `disableCodeConnect` 는 서버 도구 스키마에 없는 인자라 권하지 않는다.
 - **응답 대기 상한은 30초다.** 넘으면 도구 이름과 초를 알리는 오류로 끝나고,
   `--timeout` 으로 바꾼다. 연결 거부(`ECONNREFUSED`)와는 다른 메시지다.
 - **`clientLanguages`/`clientFrameworks` 는 옵션으로 열지 않았다.** 스키마 설명이

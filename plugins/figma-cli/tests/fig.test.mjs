@@ -187,8 +187,8 @@ describe('splitServerNotes — 서버가 응답에 끼운 지시 문구를 데�
 describe('오류 메시지', () => {
   test('코드 없이 Code Connect 안내만 온 경우: 재호출 명령에 노드 id 와 인자가 들어간다', () => {
     const msg = codeConnectOnlyError({ nodeId: '6019:3566', excludeScreenshot: true }).message
-    assert.match(msg, /disableCodeConnect/)
-    assert.match(msg, /fig call get_design_context '\{"nodeId":"6019:3566","excludeScreenshot":true,"disableCodeConnect":false\}'/)
+    assert.match(msg, /disableCodeConnect 는 서버 도구 스키마\(fig tools\)에 없는 인자/)
+    assert.match(msg, /fig call get_design_context '\{"nodeId":"6019:3566","excludeScreenshot":true,"forceCode":true\}'/)
   })
   test('타임아웃: 도구 이름·초·--timeout 을 알리고 연결 실패로 안내하지 않는다', () => {
     const msg = timeoutError('get_design_context', 30000).message

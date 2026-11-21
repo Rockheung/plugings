@@ -67,11 +67,12 @@ Figma recommends…", Code Connect 연결 안내("Please ask the user…")가 �
 코드 1 과 함께 재호출 명령을 낸다.
 
 ```bash
-fig call get_design_context '{"nodeId":"6019:3566","disableCodeConnect":false}'
+fig call get_design_context '{"nodeId":"6019:3566","forceCode":true}'
 ```
 
-`disableCodeConnect` 는 서버가 안내문에서 제시한 인자이고 도구 스키마(`fig tools`)에는
-없다 — 받아들이는지는 서버에 달렸다. 그래도 코드가 안 오면 코드를 추측해 쓰지 않고
+서버 안내문이 시키는 `disableCodeConnect` 는 도구 스키마(`fig tools`)에 없는 인자다.
+스키마의 `forceCode` 는 출력이 커서 메타데이터만 올 때 코드를 강제하는 인자라서, 이
+응답에 듣는지는 확인하지 못했다. 그래도 코드가 안 오면 코드를 추측해 쓰지 않고
 사용자에게 그 사실을 알린다. 시안의 모양·치수·변수만 필요하면 `fig shot`·`fig meta`·`fig vars`.
 
 ## 응답이 멈출 때

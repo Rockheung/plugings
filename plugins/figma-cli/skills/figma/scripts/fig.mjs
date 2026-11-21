@@ -148,10 +148,11 @@ export function splitServerNotes(result) {
 }
 
 export function codeConnectOnlyError(args) {
-  const retry = JSON.stringify({ ...args, disableCodeConnect: false })
+  const retry = JSON.stringify({ ...args, forceCode: true })
   return new Error(
     '서버가 디자인 코드를 주지 않고 Code Connect 연결 안내만 보냈다.\n' +
-    '  서버가 제시한 재호출 인자는 disableCodeConnect=false 다(서버 도구 스키마에는 없는 인자라 받아들이는지는 서버에 달렸다):\n' +
+    '  안내문이 시키는 disableCodeConnect 는 서버 도구 스키마(fig tools)에 없는 인자다.\n' +
+    '  스키마의 forceCode 는 출력이 커서 메타데이터만 올 때 코드를 강제하는 인자이고, 이 응답에 듣는지는 확인하지 못했다:\n' +
     `  fig call get_design_context '${retry}'\n` +
     '  원문은 --raw 로 확인한다.')
 }
