@@ -1,9 +1,9 @@
-// node --test plugins/figma-cli/tests/
+// bun test plugins/figma-cli/tests/
 //
 // 네트워크를 타지 않는 순수 함수만 잠근다 — Figma 앱이 없는 CI 에서도 돌아야 한다.
 // 고정 입력은 실제 서버 응답에서 잘라 온 것이다(2026-09-09, [DM] Widget Studio).
 
-import { test, describe } from 'node:test'
+import { test, describe } from 'bun:test'
 import assert from 'node:assert/strict'
 
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs }

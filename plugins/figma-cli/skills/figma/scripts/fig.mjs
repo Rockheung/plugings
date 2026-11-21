@@ -1,10 +1,10 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // fig — Figma 데스크톱 앱의 Dev Mode MCP 서버(http://127.0.0.1:3845/mcp)를 셸에서 쓰는 CLI.
 //
 // MCP 도구로 직접 부르는 대신 CLI 를 두는 이유: get_design_context 한 노드가 65KB 라
 // 대화 컨텍스트에 통째로 들어간다. 파일로 받아 grep 하면 필요한 줄만 본다.
 //
-// 의존성 없음 — node 18+ 의 fetch/Buffer 만 쓴다.
+// 의존성 없음 — bun 의 fetch/Buffer 만 쓴다.
 
 import fs from 'node:fs'
 import path from 'node:path'

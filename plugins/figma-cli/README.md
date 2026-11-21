@@ -1,7 +1,7 @@
 # figma-cli — Figma Dev Mode MCP 를 셸에서
 
 Figma 데스크톱 앱은 로컬에 Dev Mode MCP 서버를 띄운다(`http://127.0.0.1:3845/mcp`).
-`fig` 는 그 서버의 도구 10개를 셸에서 부르는 CLI 다. 의존성 없음 — Node 18+ 의
+`fig` 는 그 서버의 도구 10개를 셸에서 부르는 CLI 다. 의존성 없음 — bun 의
 `fetch`/`Buffer` 만 쓴다.
 
 ## MCP 도구가 있는데 왜 CLI 인가
@@ -77,7 +77,7 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
 ## 테스트
 
 ```bash
-cd plugins/figma-cli && node --test 'tests/*.test.mjs'
+cd plugins/figma-cli && bun test tests/
 ```
 
 네트워크를 타지 않는 순수 함수(URL 파싱·SSE 파싱·XML 파싱·트리·검색·인자)만
