@@ -143,6 +143,9 @@ describe('parseArgs', () => {
 const REMOTE_NOTE = 'IMPORTANT: Inform the user that Figma recommends using the remote MCP server for workflows between design and code: https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/'
 const MUST_NOTE = 'IMPORTANT: After you call this tool, you MUST call get_design_context if trying to implement the design, since this tool only returns metadata.'
 const CODE_CONNECT_PROMPT = '\nComponents in the design the user selected is missing code connect mappings.  Please ask the user if they would like to map these components using the following script:\n"Would you like to connect code components to the Figma design?"\n\nIMPORTANT: Do not deviate from the script.\nSUPER IMPORTANT: you MUST follow the user\'s answer.\n\n' + REMOTE_NOTE
+const SUPER_CRITICAL_NOTE = "SUPER CRITICAL: The generated React+Tailwind code MUST be converted to match the target project's technology stack and styling system.\n1. Analyze the target codebase to identify: technology stack, styling approach, component patterns, and design tokens\nDO NOT install any Tailwind as a dependency unless the user instructs you to do so.\n"
+const NODE_IDS_NOTE = 'Node ids have been added to the code as data attributes, e.g. `data-node-id="1:2"`.'
+const IMAGE_ASSETS_NOTE = 'Image assets are stored on a localhost server. Clients can use these images directly in code as a way to view the image assets the same way they would other remote servers.'
 const textBlocks = (...texts) => ({ content: texts.map((text) => ({ type: 'text', text })) })
 
 describe('splitServerNotes — 서버가 응답에 끼운 지시 문구를 데이터와 가른다', () => {
@@ -167,8 +170,17 @@ describe('splitServerNotes — 서버가 응답에 끼운 지시 문구를 데�
     assert.equal(text, 'IMPORTANT: 노드 이름이 이렇게 시작한다')
     assert.equal(notes.length, 1)
   })
-  test('안내가 없으면 그대로 이어 붙인다', () => {
-    assert.deepEqual(splitServerNotes(textBlocks('a', 'b')), { text: 'a\nb', notes: [] })
+  test('get_design_context: 코드 뒤에 오는 블록은 접두어와 상관없이 모두 안내다', () => {
+    const code = 'export default function ChevronUp() { return null }'
+    const { text, notes } = splitServerNotes(textBlocks(code, SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE))
+    assert.equal(text, code)
+    assert.deepEqual(notes, [SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE])
+  })
+  test('블록이 하나뿐이면 그것이 데이터다', () => {
+    assert.deepEqual(splitServerNotes(textBlocks('a')), { text: 'a', notes: [] })
+  })
+  test('텍스트 블록이 없으면 데이터도 안내도 비어 있다', () => {
+    assert.deepEqual(splitServerNotes({ content: [{ type: 'image', data: 'AA==' }] }), { text: '', notes: [] })
   })
 })
 

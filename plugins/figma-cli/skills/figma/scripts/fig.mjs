@@ -138,14 +138,13 @@ export const textOf = (result) =>
 
 export const imagesOf = (result) => (result.content || []).filter((b) => b.type === 'image')
 
-const isServerNote = (text, index) =>
-  (index > 0 && /^\s*(SUPER )?IMPORTANT:/.test(text)) || /missing code connect mappings/i.test(text)
+const isCodeConnectPrompt = (text) => /missing code connect mappings/i.test(text)
 
 export function splitServerNotes(result) {
   const blocks = (result.content || []).filter((b) => b.type === 'text').map((b) => b.text)
-  const notes = blocks.filter((t, i) => isServerNote(t, i))
-  const text = blocks.filter((t, i) => !isServerNote(t, i)).join('\n')
-  return { text, notes }
+  const [first = '', ...rest] = blocks
+  if (isCodeConnectPrompt(first)) return { text: '', notes: blocks }
+  return { text: first, notes: rest }
 }
 
 export function codeConnectOnlyError(args) {
@@ -153,7 +152,8 @@ export function codeConnectOnlyError(args) {
   return new Error(
     '서버가 디자인 코드를 주지 않고 Code Connect 연결 안내만 보냈다.\n' +
     '  서버가 제시한 재호출 인자는 disableCodeConnect=false 다(서버 도구 스키마에는 없는 인자라 받아들이는지는 서버에 달렸다):\n' +
-    `  fig call get_design_context '${retry}'`)
+    `  fig call get_design_context '${retry}'\n` +
+    '  원문은 --raw 로 확인한다.')
 }
 
 function presentText(result, opts, args) {
