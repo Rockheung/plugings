@@ -70,12 +70,14 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
   `hidden="true"` 라 기본 출력은 13개다. 전부 보려면 `--hidden`.
 - **`ctx` 는 스크린샷을 빼고 부른다**(`excludeScreenshot: true`). 텍스트 파이프에
   base64 는 쓸모가 없다. 그림이 필요하면 `fig shot`.
-- **서버가 붙인 안내 문구는 결과에서 뺀다.** 응답의 `content` 블록 중 첫 블록 뒤에서
-  `IMPORTANT:` 로 시작하는 것, 그리고 "missing code connect mappings" 를 담은 블록이
-  대상이다. 사용자 요청이 아닌 지시문이라 에이전트가 그대로 읽으면 따를 수 있다.
-  개수만 stderr 로 알리고 원문은 `--raw` 로 본다.
+- **서버가 붙인 안내 문구는 결과에서 뺀다.** 응답의 텍스트 블록은 첫 블록만 데이터이고
+  뒤따르는 블록은 전부 서버 안내다(`ctx` 는 코드 뒤에 변환 지시·node id 설명·이미지
+  서버 설명·원격 서버 권유가 4블록으로 온다). 첫 블록이 "missing code connect mappings"
+  안내이면 데이터가 없는 응답이다. 사용자 요청이 아닌 지시문이라 에이전트가 그대로 읽으면
+  따를 수 있다. 개수만 stderr 로 알리고 원문은 `--raw` 로 본다.
 - **`ctx` 가 코드 없이 Code Connect 안내만 받으면 오류다.** 종료 코드 1 과 함께
-  서버가 제시한 `disableCodeConnect: false` 로 다시 부르는 `fig call` 명령을 낸다.
+  `forceCode: true` 로 다시 부르는 `fig call` 명령을 낸다. 안내문이 시키는
+  `disableCodeConnect` 는 서버 도구 스키마에 없는 인자라 권하지 않는다.
 - **응답 대기 상한은 30초다.** 넘으면 도구 이름과 초를 알리는 오류로 끝나고,
   `--timeout` 으로 바꾼다. 연결 거부(`ECONNREFUSED`)와는 다른 메시지다.
 - **`clientLanguages`/`clientFrameworks` 는 옵션으로 열지 않았다.** 스키마 설명이
