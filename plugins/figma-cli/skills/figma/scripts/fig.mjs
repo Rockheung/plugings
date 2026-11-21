@@ -38,11 +38,18 @@ const HEADERS = (sid) => ({
   ...(sid ? { 'mcp-session-id': sid } : {}),
 })
 
-// fetch 가 응답 없이 실패하면 원인이 무엇이든 서버에 못 닿은 것이다 — 종류를 가리지 않고
-// 같은 안내를 낸다. 원인 코드는 진단용으로 괄호에 남긴다.
+export const DEFAULT_TIMEOUT_MS = 30000
+
+export function timeoutError(label, timeoutMs) {
+  return new Error(
+    `${label} 응답이 ${timeoutMs / 1000}초 안에 오지 않았다.\n` +
+    '  다른 명령(fig meta · vars)은 응답하는데 이 도구만 멈추는 경우가 있다 — 그 둘이 응답하는지 먼저 본다.\n' +
+    '  오래 걸리는 노드면 --timeout 초 로 늘린다.')
+}
+
 function friendlyConnError(err) {
   const detail = err?.cause?.code || err?.cause?.message || err?.code || err?.name
-  if (err?.name === 'TypeError' || err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+  if (err?.name === 'TypeError') {
     return new Error(
       `${ENDPOINT} 에 연결하지 못했다 (${detail}).\n` +
       '  1) Figma 데스크톱 앱이 떠 있는지 확인한다 — 브라우저 버전에는 이 서버가 없다.\n' +
@@ -54,18 +61,20 @@ function friendlyConnError(err) {
 }
 
 async function post(sid, body, timeoutMs) {
-  let res
   try {
-    res = await fetch(ENDPOINT, {
+    const res = await fetch(ENDPOINT, {
       method: 'POST',
       headers: HEADERS(sid),
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
+    return { status: res.status, sid: res.headers.get('mcp-session-id'), text: await res.text() }
   } catch (err) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      throw timeoutError(body.params?.name || body.method, timeoutMs)
+    }
     throw friendlyConnError(err)
   }
-  return { status: res.status, sid: res.headers.get('mcp-session-id'), text: await res.text() }
 }
 
 // 응답은 text/event-stream 이라 `data: ` 줄만 이어 붙이면 JSON 하나가 된다.
@@ -103,7 +112,7 @@ async function initialize() {
 }
 
 // 세션은 서버 재시작·만료로 언제든 죽는다. TTL 을 알 필요 없이 404 를 보고 다시 잡는다.
-async function rpc(method, params, { noCache = false, timeoutMs = 120000 } = {}) {
+async function rpc(method, params, { noCache = false, timeoutMs = DEFAULT_TIMEOUT_MS } = {}) {
   let sid = noCache ? await initialize() : (readCachedSid() || await initialize())
   let res = await post(sid, { jsonrpc: '2.0', id: 2, method, params }, timeoutMs)
   if (res.status === 404) {
@@ -128,6 +137,32 @@ export const textOf = (result) =>
   (result.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n')
 
 export const imagesOf = (result) => (result.content || []).filter((b) => b.type === 'image')
+
+const isServerNote = (text, index) =>
+  (index > 0 && /^\s*(SUPER )?IMPORTANT:/.test(text)) || /missing code connect mappings/i.test(text)
+
+export function splitServerNotes(result) {
+  const blocks = (result.content || []).filter((b) => b.type === 'text').map((b) => b.text)
+  const notes = blocks.filter((t, i) => isServerNote(t, i))
+  const text = blocks.filter((t, i) => !isServerNote(t, i)).join('\n')
+  return { text, notes }
+}
+
+export function codeConnectOnlyError(args) {
+  const retry = JSON.stringify({ ...args, disableCodeConnect: false })
+  return new Error(
+    '서버가 디자인 코드를 주지 않고 Code Connect 연결 안내만 보냈다.\n' +
+    '  서버가 제시한 재호출 인자는 disableCodeConnect=false 다(서버 도구 스키마에는 없는 인자라 받아들이는지는 서버에 달렸다):\n' +
+    `  fig call get_design_context '${retry}'`)
+}
+
+function presentText(result, opts, args) {
+  if (opts.raw) return JSON.stringify(result, null, 2)
+  const { text, notes } = splitServerNotes(result)
+  if (notes.length) process.stderr.write(`fig: 서버가 붙인 안내 문구 ${notes.length}개는 뺐다 (--raw 로 전체)\n`)
+  if (!text.trim() && notes.length && args) throw codeConnectOnlyError(args)
+  return text
+}
 
 // ── get_metadata XML 파싱 ────────────────────────────────────────────────────
 //
@@ -206,6 +241,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 
 명령
   ctx   [대상]          디자인 컨텍스트(참조 코드·토큰). get_design_context
+                        코드 없이 Code Connect 안내만 오면 오류로 알리고 재호출 명령을 낸다
   meta  [대상]          노드 트리 메타데이터 XML. get_metadata
   shot  [대상]          PNG 스크린샷. get_screenshot
   vars  [대상]          변수 정의. get_variable_defs
@@ -223,7 +259,8 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   --json           구조화 출력 (tree·find·meta)
   -d, --depth N    tree 깊이, 기본 2
   --hidden         숨김 노드도 포함 (기본은 제외)
-  --raw            서버 응답(JSON-RPC result)을 그대로 낸다
+  --raw            서버 응답(JSON-RPC result)을 그대로 낸다 (서버가 붙인 안내 문구도 포함)
+  --timeout SEC    응답 대기 상한, 기본 30초
   --no-cache       캐시된 세션을 쓰지 않고 새로 initialize 한다
   -h, --help       이 도움말
 
@@ -242,7 +279,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 // ── main ─────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
-  const opts = { json: false, raw: false, hidden: false, noCache: false, depth: 2, out: null, help: false }
+  const opts = { json: false, raw: false, hidden: false, noCache: false, depth: 2, out: null, help: false, timeoutMs: DEFAULT_TIMEOUT_MS }
   const positional = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -253,10 +290,12 @@ export function parseArgs(argv) {
     else if (a === '--no-cache') opts.noCache = true
     else if (a === '-o' || a === '--out') opts.out = argv[++i]
     else if (a === '-d' || a === '--depth') opts.depth = Number(argv[++i])
+    else if (a === '--timeout') opts.timeoutMs = Number(argv[++i]) * 1000
     else if (a.startsWith('-') && a !== '-') throw new Error(`모르는 옵션: ${a} (fig --help)`)
     else positional.push(a)
   }
   if (opts.depth != null && Number.isNaN(opts.depth)) throw new Error('--depth 에는 숫자를 준다')
+  if (!(opts.timeoutMs > 0)) throw new Error('--timeout 에는 0 보다 큰 초 단위 숫자를 준다')
   return { opts, positional }
 }
 
@@ -280,23 +319,20 @@ export async function main(argv) {
   switch (cmd) {
     case 'ctx': {
       // 스크린샷 블록은 텍스트 파이프에 쓸모가 없다 — 그림이 필요하면 fig shot.
-      const r = await callTool('get_design_context', {
-        ...nodeArgs(rest[0]), clientLanguages: 'unknown', clientFrameworks: 'unknown', excludeScreenshot: true,
-      }, opts)
-      emit(opts.raw ? JSON.stringify(r, null, 2) : textOf(r), opts.out)
+      const args = { ...nodeArgs(rest[0]), clientLanguages: 'unknown', clientFrameworks: 'unknown', excludeScreenshot: true }
+      const r = await callTool('get_design_context', args, opts)
+      emit(presentText(r, opts, args), opts.out)
       return 0
     }
     case 'meta': {
       const r = await callTool('get_metadata', nodeArgs(rest[0]), opts)
-      const text = opts.raw ? JSON.stringify(r, null, 2)
-        : opts.json ? JSON.stringify(parseMetadata(textOf(r)), null, 2)
-        : textOf(r)
+      const text = opts.json && !opts.raw ? JSON.stringify(parseMetadata(textOf(r)), null, 2) : presentText(r, opts)
       emit(text, opts.out)
       return 0
     }
     case 'vars': {
       const r = await callTool('get_variable_defs', nodeArgs(rest[0]), opts)
-      emit(opts.raw ? JSON.stringify(r, null, 2) : textOf(r), opts.out)
+      emit(presentText(r, opts), opts.out)
       return 0
     }
     case 'shot': {
@@ -338,7 +374,7 @@ export async function main(argv) {
       let args
       try { args = rest[1] ? JSON.parse(rest[1]) : {} } catch (e) { throw new Error(`인자 JSON 을 못 읽었다: ${e.message}`) }
       const r = await callTool(rest[0], args, opts)
-      emit(opts.raw ? JSON.stringify(r, null, 2) : textOf(r), opts.out)
+      emit(presentText(r, opts), opts.out)
       return 0
     }
     default:
