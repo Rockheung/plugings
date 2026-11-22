@@ -39,7 +39,7 @@ const HEADERS = (sid) => ({
   ...(sid ? { 'mcp-session-id': sid } : {}),
 })
 
-export const DEFAULT_TIMEOUT_MS = 30000
+export const DEFAULT_TIMEOUT_MS = 15000
 
 export function timeoutError(label, timeoutMs) {
   return new Error(
@@ -378,7 +378,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   -o, --out FILE   stdout 대신 파일로 쓴다 (shot 은 생략 시 fig-<id>.png)
   --json           구조화 출력 (tree·find·meta)
   --raw            서버 응답(JSON-RPC result)을 그대로 낸다 (서버가 붙인 안내 문구도 포함)
-  --timeout SEC    응답 대기 상한, 기본 30초
+  --timeout SEC    응답 대기 상한, 기본 15초
   --no-cache       캐시된 세션을 쓰지 않고 새로 initialize 한다
   -h, --help       이 도움말
 
