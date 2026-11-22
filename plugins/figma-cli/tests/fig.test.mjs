@@ -5,9 +5,13 @@
 
 import { test, describe } from 'bun:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
-  splitServerNotes, codeConnectOnlyError, timeoutError }
+  splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
+  limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex }
   from '../skills/figma/scripts/fig.mjs'
 
 describe('parseNodeId — URL 을 그대로 붙여넣어도 받는다', () => {
@@ -143,6 +147,9 @@ describe('parseArgs', () => {
 const REMOTE_NOTE = 'IMPORTANT: Inform the user that Figma recommends using the remote MCP server for workflows between design and code: https://developers.figma.com/docs/figma-mcp-server/remote-server-installation/'
 const MUST_NOTE = 'IMPORTANT: After you call this tool, you MUST call get_design_context if trying to implement the design, since this tool only returns metadata.'
 const CODE_CONNECT_PROMPT = '\nComponents in the design the user selected is missing code connect mappings.  Please ask the user if they would like to map these components using the following script:\n"Would you like to connect code components to the Figma design?"\n\nIMPORTANT: Do not deviate from the script.\nSUPER IMPORTANT: you MUST follow the user\'s answer.\n\n' + REMOTE_NOTE
+const SUPER_CRITICAL_NOTE = "SUPER CRITICAL: The generated React+Tailwind code MUST be converted to match the target project's technology stack and styling system.\n1. Analyze the target codebase to identify: technology stack, styling approach, component patterns, and design tokens\nDO NOT install any Tailwind as a dependency unless the user instructs you to do so.\n"
+const NODE_IDS_NOTE = 'Node ids have been added to the code as data attributes, e.g. `data-node-id="1:2"`.'
+const IMAGE_ASSETS_NOTE = 'Image assets are stored on a localhost server. Clients can use these images directly in code as a way to view the image assets the same way they would other remote servers.'
 const textBlocks = (...texts) => ({ content: texts.map((text) => ({ type: 'text', text })) })
 
 describe('splitServerNotes — 서버가 응답에 끼운 지시 문구를 데이터와 가른다', () => {
@@ -167,16 +174,25 @@ describe('splitServerNotes — 서버가 응답에 끼운 지시 문구를 데�
     assert.equal(text, 'IMPORTANT: 노드 이름이 이렇게 시작한다')
     assert.equal(notes.length, 1)
   })
-  test('안내가 없으면 그대로 이어 붙인다', () => {
-    assert.deepEqual(splitServerNotes(textBlocks('a', 'b')), { text: 'a\nb', notes: [] })
+  test('get_design_context: 코드 뒤에 오는 블록은 접두어와 상관없이 모두 안내다', () => {
+    const code = 'export default function ChevronUp() { return null }'
+    const { text, notes } = splitServerNotes(textBlocks(code, SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE))
+    assert.equal(text, code)
+    assert.deepEqual(notes, [SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE])
+  })
+  test('블록이 하나뿐이면 그것이 데이터다', () => {
+    assert.deepEqual(splitServerNotes(textBlocks('a')), { text: 'a', notes: [] })
+  })
+  test('텍스트 블록이 없으면 데이터도 안내도 비어 있다', () => {
+    assert.deepEqual(splitServerNotes({ content: [{ type: 'image', data: 'AA==' }] }), { text: '', notes: [] })
   })
 })
 
 describe('오류 메시지', () => {
   test('코드 없이 Code Connect 안내만 온 경우: 재호출 명령에 노드 id 와 인자가 들어간다', () => {
     const msg = codeConnectOnlyError({ nodeId: '6019:3566', excludeScreenshot: true }).message
-    assert.match(msg, /disableCodeConnect/)
-    assert.match(msg, /fig call get_design_context '\{"nodeId":"6019:3566","excludeScreenshot":true,"disableCodeConnect":false\}'/)
+    assert.match(msg, /disableCodeConnect 는 서버 도구 스키마\(fig tools\)에 없는 인자/)
+    assert.match(msg, /fig call get_design_context '\{"nodeId":"6019:3566","excludeScreenshot":true,"forceCode":true\}'/)
   })
   test('타임아웃: 도구 이름·초·--timeout 을 알리고 연결 실패로 안내하지 않는다', () => {
     const msg = timeoutError('get_design_context', 30000).message
@@ -184,4 +200,149 @@ describe('오류 메시지', () => {
     assert.match(msg, /--timeout/)
     assert.doesNotMatch(msg, /연결하지 못했다/)
   })
+  test('활성 탭이 파일이 아닌 서버 오류: 한국어 대처와 서버 원문을 함께 낸다', () => {
+    const msg = describeServerError('The MCP server is only available if your active tab is a design or FigJam file.', -32603).message
+    assert.match(msg, /활성 탭이 디자인·FigJam 파일이 아니다/)
+    assert.match(msg, /only available if your active tab.*\(code -32603\)/)
+  })
+  test('그 밖의 서버 오류는 원문과 코드를 그대로 낸다', () => {
+    assert.equal(describeServerError('Node with guid 1:2 is invalid', -32603).message, 'Node with guid 1:2 is invalid (code -32603)')
+  })
+})
+
+describe('splitServerNotes — 이미지가 앞서는 응답', () => {
+  test('get_screenshot 형태: 데이터 텍스트는 없고 텍스트 블록은 전부 안내다', () => {
+    const result = { content: [{ type: 'image', data: 'AA==', mimeType: 'image/png' }, { type: 'text', text: REMOTE_NOTE }] }
+    assert.deepEqual(splitServerNotes(result), { text: '', notes: [REMOTE_NOTE] })
+  })
+})
+
+const FILTER_XML = `<document id="0:0" name="Document" x="0" y="0" width="0" height="0">
+  <canvas id="6028:76561" name="Design" x="0" y="0" width="0" height="0">
+    <symbol id="6019:3566" name="chevron-up" x="0" y="0" width="24" height="24">
+      <vector id="6019:3567" name="Icon" x="6" y="9" width="12" height="6" />
+    </symbol>
+    <symbol id="6030:7232" name="chevron-down" x="0" y="0" width="24" height="24" />
+    <instance id="6166:1" name="chevron-up" x="10" y="10" width="16" height="16" />
+    <frame id="6040:423" name="Type=Address bar, Orientation=Portrait, Scrolled=No" x="0" y="0" width="390" height="844" />
+    <frame id="6040:424" name="Type=Address bar, Orientation=Landscape, Scrolled=No" x="0" y="0" width="844" height="390" />
+    <text id="6028:76635" name="주문 조회" x="0" y="0" width="60" height="20" />
+    <frame id="6040:500" name="square-hidden" x="0" y="0" width="24" height="24" hidden="true" />
+  </canvas>
+</document>`
+const filterNodes = parseMetadata(FILTER_XML)
+const ids = (hits) => hits.map((n) => n.id)
+
+describe('findNodes — 구조 필터', () => {
+  test('--type: 그 타입만', () => {
+    assert.deepEqual(ids(findNodes(filterNodes, '.', { type: 'symbol' })), ['6019:3566', '6030:7232'])
+  })
+  test('--square 범위: 너비=높이이고 범위 안인 것만, 크기 0 인 document·canvas 는 빠진다', () => {
+    assert.deepEqual(ids(findNodes(filterNodes, '.', { square: [8, 48] })), ['6019:3566', '6030:7232', '6166:1'])
+  })
+  test('--square 한 값은 그 크기만', () => {
+    assert.deepEqual(ids(findNodes(filterNodes, '.', { square: [24, 24] })), ['6019:3566', '6030:7232'])
+  })
+  test('--prop: 이름의 이름=값 조각이 정확히 일치해야 한다', () => {
+    assert.deepEqual(ids(findNodes(filterNodes, '.', { prop: 'Orientation=Portrait' })), ['6040:423'])
+    assert.deepEqual(ids(findNodes(filterNodes, '.', { prop: 'Orientation=Port' })), [])
+  })
+  test('필터는 이름 패턴과 겹쳐 쓴다', () => {
+    assert.deepEqual(ids(findNodes(filterNodes, 'chevron', { type: 'instance', square: [8, 48] })), ['6166:1'])
+  })
+  test('숨김은 기본 제외, hidden 으로 포함', () => {
+    assert.deepEqual(ids(findNodes(filterNodes, 'square-hidden', { square: [24, 24] })), [])
+    assert.deepEqual(ids(findNodes(filterNodes, 'square-hidden', { square: [24, 24], hidden: true })), ['6040:500'])
+  })
+})
+
+describe('limitHits — stdout 출력 상한', () => {
+  const hits = [1, 2, 3, 4, 5]
+  test('상한 안이면 그대로', () => {
+    assert.deepEqual(limitHits(hits, 5), { shown: hits, more: 0 })
+  })
+  test('상한을 넘으면 앞쪽만 보이고 남은 건수를 센다', () => {
+    assert.deepEqual(limitHits(hits, 2), { shown: [1, 2], more: 3 })
+  })
+  test('0 은 제한 없음', () => {
+    assert.deepEqual(limitHits(hits, 0), { shown: hits, more: 0 })
+  })
+})
+
+describe('parseSquare', () => {
+  test('한 값과 범위', () => {
+    assert.deepEqual(parseSquare('24'), [24, 24])
+    assert.deepEqual(parseSquare('8-48'), [8, 48])
+  })
+  test('읽을 수 없거나 거꾸로 된 범위', () => {
+    assert.throws(() => parseSquare('x'), /--square/)
+    assert.throws(() => parseSquare(undefined), /--square/)
+    assert.throws(() => parseSquare('48-8'), /작은 값-큰 값/)
+  })
+})
+
+describe('parseArgs — 찾기 옵션', () => {
+  test('기본값: 상한 50, 필터 없음, 색인 안 씀', () => {
+    const { opts } = parseArgs(['find', 'x'])
+    assert.deepEqual([opts.limit, opts.type, opts.prop, opts.square, opts.index], [50, null, null, null, false])
+  })
+  test('옵션을 읽는다', () => {
+    const { opts } = parseArgs(['find', 'x', '--limit', '0', '--type', 'frame', '--prop', 'A=b', '--square', '8-48', '--index'])
+    assert.deepEqual([opts.limit, opts.type, opts.prop, opts.square, opts.index], [0, 'frame', 'A=b', [8, 48], true])
+  })
+  test('잘못된 값은 조용히 넘기지 않는다', () => {
+    assert.throws(() => parseArgs(['find', 'x', '--limit', '-1']), /--limit/)
+    assert.throws(() => parseArgs(['find', 'x', '--limit', '1.5']), /--limit/)
+    assert.throws(() => parseArgs(['find', 'x', '--limit']), /--limit/)
+    assert.throws(() => parseArgs(['find', 'x', '--type']), /--type/)
+    assert.throws(() => parseArgs(['find', 'x', '--prop', 'abc']), /--prop/)
+    assert.throws(() => parseArgs(['find', 'x', '--prop']), /--prop/)
+  })
+})
+
+describe('agoText · sameNode', () => {
+  test('경과 시간을 한국어로', () => {
+    assert.equal(agoText(30000), '방금')
+    assert.equal(agoText(5 * 60000), '5분 전')
+    assert.equal(agoText(3 * 3600000), '3시간 전')
+    assert.equal(agoText(49 * 3600000), '2일 전')
+  })
+  test('노드 비교는 id·타입·이름·좌표·크기·숨김만 본다', () => {
+    const a = filterNodes[2]
+    assert.equal(sameNode(a, { ...a, depth: 9, path: ['x'] }), true)
+    assert.equal(sameNode(a, { ...a, width: a.width + 1 }), false)
+    assert.equal(sameNode(a, { ...a, name: `${a.name}!` }), false)
+  })
+})
+
+describe('색인 — 저장하고 읽어도 라이브와 같은 노드다', () => {
+  const withDir = (fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-test-'))
+    try { return fn(dir) } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+  test('저장한 XML 을 읽으면 파싱 결과가 그대로다', () => withDir((dir) => {
+    writeIndex(FILTER_XML, filterNodes, dir, 1000)
+    assert.deepEqual(readIndex(dir).nodes, filterNodes)
+  }))
+  test('메타: 개수·캔버스 이름·만든 시각·마지막 노드(확인용)', () => withDir((dir) => {
+    const meta = writeIndex(FILTER_XML, filterNodes, dir, 1000)
+    assert.equal(meta.count, 10)
+    assert.deepEqual(meta.canvases, ['Design'])
+    assert.equal(meta.builtAt, 1000)
+    assert.equal(meta.probe.id, '6040:500')
+    assert.deepEqual(readIndex(dir).meta, meta)
+  }))
+  test('색인에서 찾은 결과가 라이브와 같다 (메타문자·대소문자 포함)', () => withDir((dir) => {
+    writeIndex(FILTER_XML, filterNodes, dir)
+    const stored = readIndex(dir).nodes
+    for (const pattern of ['chevron', '^chev', 'CHEVRON', '주문', '\\(', '.']) {
+      assert.deepEqual(ids(findNodes(stored, pattern, { square: null })), ids(findNodes(filterNodes, pattern)))
+    }
+  }))
+  test('색인이 없으면 만드는 방법을 알린다', () => withDir((dir) => {
+    assert.throws(() => readIndex(dir), /fig index/)
+  }))
+  test('노드가 없는 문서는 색인으로 만들지 않는다', () => withDir((dir) => {
+    assert.throws(() => writeIndex('', [], dir), /노드가 없어/)
+  }))
 })

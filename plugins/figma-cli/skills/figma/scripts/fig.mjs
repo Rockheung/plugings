@@ -9,6 +9,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import zlib from 'node:zlib'
 
 export const ENDPOINT = process.env.FIG_MCP_URL || 'http://127.0.0.1:3845/mcp'
 const CACHE_DIR = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'fig')
@@ -120,8 +121,16 @@ async function rpc(method, params, { noCache = false, timeoutMs = DEFAULT_TIMEOU
     res = await post(sid, { jsonrpc: '2.0', id: 2, method, params }, timeoutMs)
   }
   const json = parseSse(res.text)
-  if (json.error) throw new Error(`${json.error.message} (code ${json.error.code})`)
+  if (json.error) throw describeServerError(json.error.message, json.error.code)
   return json.result
+}
+
+export function describeServerError(message, code) {
+  if (/only available if your active tab is a design or FigJam file/i.test(message)) {
+    return new Error('Figma 의 활성 탭이 디자인·FigJam 파일이 아니다 — 파일 탭을 하나 열어 활성 탭으로 둔다.\n' +
+      `  (서버 응답: ${message} (code ${code}))`)
+  }
+  return new Error(`${message} (code ${code})`)
 }
 
 export async function callTool(name, args, opts) {
@@ -138,22 +147,24 @@ export const textOf = (result) =>
 
 export const imagesOf = (result) => (result.content || []).filter((b) => b.type === 'image')
 
-const isServerNote = (text, index) =>
-  (index > 0 && /^\s*(SUPER )?IMPORTANT:/.test(text)) || /missing code connect mappings/i.test(text)
+const isCodeConnectPrompt = (text) => /missing code connect mappings/i.test(text)
 
 export function splitServerNotes(result) {
-  const blocks = (result.content || []).filter((b) => b.type === 'text').map((b) => b.text)
-  const notes = blocks.filter((t, i) => isServerNote(t, i))
-  const text = blocks.filter((t, i) => !isServerNote(t, i)).join('\n')
+  const blocks = result.content || []
+  const texts = blocks.filter((b) => b.type === 'text').map((b) => b.text)
+  if (blocks[0]?.type !== 'text' || isCodeConnectPrompt(texts[0])) return { text: '', notes: texts }
+  const [text, ...notes] = texts
   return { text, notes }
 }
 
 export function codeConnectOnlyError(args) {
-  const retry = JSON.stringify({ ...args, disableCodeConnect: false })
+  const retry = JSON.stringify({ ...args, forceCode: true })
   return new Error(
     '서버가 디자인 코드를 주지 않고 Code Connect 연결 안내만 보냈다.\n' +
-    '  서버가 제시한 재호출 인자는 disableCodeConnect=false 다(서버 도구 스키마에는 없는 인자라 받아들이는지는 서버에 달렸다):\n' +
-    `  fig call get_design_context '${retry}'`)
+    '  안내문이 시키는 disableCodeConnect 는 서버 도구 스키마(fig tools)에 없는 인자다.\n' +
+    '  스키마의 forceCode 는 출력이 커서 메타데이터만 올 때 코드를 강제하는 인자이고, 이 응답에 듣는지는 확인하지 못했다:\n' +
+    `  fig call get_design_context '${retry}'\n` +
+    '  원문은 --raw 로 확인한다.')
 }
 
 function presentText(result, opts, args) {
@@ -161,6 +172,8 @@ function presentText(result, opts, args) {
   const { text, notes } = splitServerNotes(result)
   if (notes.length) process.stderr.write(`fig: 서버가 붙인 안내 문구 ${notes.length}개는 뺐다 (--raw 로 전체)\n`)
   if (!text.trim() && notes.length && args) throw codeConnectOnlyError(args)
+  const images = imagesOf(result).length
+  if (images) process.stderr.write(`fig: 응답에 이미지 ${images}개가 있다 — 그림은 fig shot 으로 받는다\n`)
   return text
 }
 
@@ -216,13 +229,92 @@ export function renderTree(nodes, { depth = 2, hidden = false } = {}) {
     .join('\n')
 }
 
-export function findNodes(nodes, pattern, { hidden = false } = {}) {
+export function findNodes(nodes, pattern, { hidden = false, type = null, prop = null, square = null } = {}) {
   const re = new RegExp(pattern, 'i')
-  return nodes.filter((n) => (hidden || !n.hidden) && re.test(n.name))
+  return nodes.filter((n) => (hidden || !n.hidden) && re.test(n.name)
+    && (!type || n.type === type)
+    && (!prop || n.name.split(', ').includes(prop))
+    && (!square || (n.width === n.height && n.width >= square[0] && n.width <= square[1])))
+}
+
+export const DEFAULT_FIND_LIMIT = 50
+
+export function limitHits(hits, limit) {
+  if (!limit || hits.length <= limit) return { shown: hits, more: 0 }
+  return { shown: hits.slice(0, limit), more: hits.length - limit }
+}
+
+export function parseSquare(text) {
+  const m = /^(\d+(?:\.\d+)?)(?:-(\d+(?:\.\d+)?))?$/.exec(text ?? '')
+  if (!m) throw new Error('--square 에는 크기(24) 또는 범위(8-48)를 준다')
+  const [min, max] = [Number(m[1]), Number(m[2] ?? m[1])]
+  if (min > max) throw new Error('--square 범위는 작은 값-큰 값 순서로 준다')
+  return [min, max]
 }
 
 const renderFind = (hits) =>
   hits.map((n) => `${fmtNode(n)}  ← ${n.path.slice(0, -1).join(' / ') || '(루트)'}`).join('\n')
+
+const INDEX_XML = 'index.xml.gz'
+const INDEX_META = 'index.json'
+
+export function agoText(ms) {
+  const minutes = Math.floor(ms / 60000)
+  if (minutes < 1) return '방금'
+  if (minutes < 60) return `${minutes}분 전`
+  const hours = Math.floor(minutes / 60)
+  return hours < 24 ? `${hours}시간 전` : `${Math.floor(hours / 24)}일 전`
+}
+
+export const sameNode = (a, b) =>
+  ['id', 'type', 'name', 'x', 'y', 'width', 'height', 'hidden'].every((k) => a[k] === b[k])
+
+export function writeIndex(xml, nodes, dir = CACHE_DIR, now = Date.now()) {
+  const last = nodes.at(-1)
+  if (!last) throw new Error('문서에 노드가 없어 색인을 만들 수 없다')
+  const { id, type, name, x, y, width, height, hidden } = last
+  const meta = {
+    builtAt: now,
+    count: nodes.length,
+    canvases: nodes.filter((n) => n.type === 'canvas' && !n.hidden).map((n) => n.name.trim()),
+    probe: { id, type, name, x, y, width, height, hidden },
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, INDEX_XML), zlib.gzipSync(xml))
+  fs.writeFileSync(path.join(dir, INDEX_META), JSON.stringify(meta))
+  return meta
+}
+
+export function readIndex(dir = CACHE_DIR) {
+  try {
+    const meta = JSON.parse(fs.readFileSync(path.join(dir, INDEX_META), 'utf8'))
+    const xml = zlib.gunzipSync(fs.readFileSync(path.join(dir, INDEX_XML))).toString('utf8')
+    return { meta, nodes: parseMetadata(xml) }
+  } catch {
+    throw new Error('색인이 없다 — fig index 로 먼저 만든다.')
+  }
+}
+
+async function indexMatchesActiveFile(meta, opts) {
+  try {
+    const [live] = parseMetadata(textOf(await callTool('get_metadata', { nodeId: meta.probe.id }, opts)))
+    return Boolean(live) && sameNode(live, meta.probe)
+  } catch (err) {
+    if (/invalid/i.test(err.message)) return false
+    throw err
+  }
+}
+
+async function indexedNodes(nodeId, opts) {
+  if (nodeId !== '0:0') throw new Error('--index 는 문서 전체(대상 생략)에만 쓴다 — 하위 트리는 --index 없이 조회한다.')
+  const { meta, nodes } = readIndex()
+  const age = agoText(Date.now() - meta.builtAt)
+  if (!(await indexMatchesActiveFile(meta, opts))) {
+    throw new Error(`활성 파일이 색인과 다르거나 색인이 오래됐다 (색인: ${meta.canvases[0] ?? '(캔버스 없음)'} 외, ${age} 만듦) — fig index 로 다시 만든다.`)
+  }
+  process.stderr.write(`fig: 색인 기준 — ${age} 만듦, ${meta.count}노드\n`)
+  return nodes
+}
 
 // ── 출력 ─────────────────────────────────────────────────────────────────────
 
@@ -239,14 +331,20 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 
 사용법: fig <명령> [대상] [옵션]
 
-명령
+찾기 — 문서 전체에서 노드를 찾는다
+  find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지 출력 (기본 50건까지)
+  tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트)
+  index                 문서 전체를 받아 로컬에 저장한다. find·tree 에 --index 를 주면
+                        서버에서 문서 전체를 다시 받지 않고 저장본으로 답한다
+
+보기 — 노드 하나를 자세히 본다
+  meta  [대상]          노드 트리 메타데이터 XML. get_metadata
   ctx   [대상]          디자인 컨텍스트(참조 코드·토큰). get_design_context
                         코드 없이 Code Connect 안내만 오면 오류로 알리고 재호출 명령을 낸다
-  meta  [대상]          노드 트리 메타데이터 XML. get_metadata
-  shot  [대상]          PNG 스크린샷. get_screenshot
   vars  [대상]          변수 정의. get_variable_defs
-  tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트)
-  find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지 출력
+  shot  [대상]          PNG 스크린샷. get_screenshot
+
+저수준
   tools                 서버가 제공하는 도구 목록과 인자
   call  <도구> [JSON]   도구를 이름으로 직접 호출 (위에 없는 도구용)
 
@@ -254,11 +352,18 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   Figma URL 을 그대로 붙여넣거나(?node-id=7327-61763), 7327-61763,
   7327:61763 을 준다. 생략하면 Figma 에서 지금 선택한 노드를 쓴다.
 
-옵션
+찾기 옵션
+  --type T         이 타입의 노드만 (frame · text · symbol · instance …)
+  --prop 이름=값   이름에 든 변형 속성이 일치하는 노드만 (예: Orientation=Portrait)
+  --square N|A-B   너비와 높이가 같고 그 크기가 N 또는 A~B 인 노드만 (아이콘 찾기)
+  --limit N        stdout 출력 상한, 기본 50, 0 은 제한 없음 (-o 로 파일에 쓰면 전부)
+  --index          fig index 로 저장한 문서로 답한다 (대상 생략 시에만)
+  --hidden         숨김 노드도 포함 (기본은 제외)
+  -d, --depth N    tree 깊이, 기본 2
+
+공통 옵션
   -o, --out FILE   stdout 대신 파일로 쓴다 (shot 은 생략 시 fig-<id>.png)
   --json           구조화 출력 (tree·find·meta)
-  -d, --depth N    tree 깊이, 기본 2
-  --hidden         숨김 노드도 포함 (기본은 제외)
   --raw            서버 응답(JSON-RPC result)을 그대로 낸다 (서버가 붙인 안내 문구도 포함)
   --timeout SEC    응답 대기 상한, 기본 30초
   --no-cache       캐시된 세션을 쓰지 않고 새로 initialize 한다
@@ -267,6 +372,8 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 예시
   fig tree                                        # 캔버스 목록
   fig find 'modalHeader'                          # 이름으로 노드 찾기
+  fig index && fig find . --square 8-48 --type instance --index   # 아이콘 인스턴스
+  fig find . --prop Orientation=Portrait --index  # 변형 속성으로 찾기
   fig meta 'https://figma.com/design/…?node-id=7327-61763'
   fig ctx 7327-61763 -o header.tsx                # 65KB 를 파일로 받아 grep
   fig shot 7327-61763 -o header.png
@@ -279,7 +386,10 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 // ── main ─────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
-  const opts = { json: false, raw: false, hidden: false, noCache: false, depth: 2, out: null, help: false, timeoutMs: DEFAULT_TIMEOUT_MS }
+  const opts = {
+    json: false, raw: false, hidden: false, noCache: false, index: false, depth: 2, out: null, help: false,
+    timeoutMs: DEFAULT_TIMEOUT_MS, limit: DEFAULT_FIND_LIMIT, type: null, prop: null, square: null,
+  }
   const positional = []
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
@@ -291,16 +401,25 @@ export function parseArgs(argv) {
     else if (a === '-o' || a === '--out') opts.out = argv[++i]
     else if (a === '-d' || a === '--depth') opts.depth = Number(argv[++i])
     else if (a === '--timeout') opts.timeoutMs = Number(argv[++i]) * 1000
+    else if (a === '--index') opts.index = true
+    else if (a === '--limit') opts.limit = Number(argv[++i])
+    else if (a === '--type') opts.type = argv[++i]
+    else if (a === '--prop') opts.prop = argv[++i]
+    else if (a === '--square') opts.square = parseSquare(argv[++i])
     else if (a.startsWith('-') && a !== '-') throw new Error(`모르는 옵션: ${a} (fig --help)`)
     else positional.push(a)
   }
   if (opts.depth != null && Number.isNaN(opts.depth)) throw new Error('--depth 에는 숫자를 준다')
   if (!(opts.timeoutMs > 0)) throw new Error('--timeout 에는 0 보다 큰 초 단위 숫자를 준다')
+  if (!Number.isInteger(opts.limit) || opts.limit < 0) throw new Error('--limit 에는 0 이상의 정수를 준다 (0 은 제한 없음)')
+  if (opts.type === undefined || opts.type === '') throw new Error('--type 에는 노드 타입을 준다 (예: frame · text · instance)')
+  if (opts.prop === undefined || (opts.prop !== null && !/^[^=]+=.+$/.test(opts.prop))) throw new Error('--prop 에는 이름=값 을 준다 (예: Orientation=Portrait)')
   return { opts, positional }
 }
 
 async function metadataNodes(target, opts) {
   const nodeId = parseNodeId(target) || '0:0'
+  if (opts.index) return indexedNodes(nodeId, opts)
   const result = await callTool('get_metadata', { nodeId }, opts)
   return parseMetadata(textOf(result))
 }
@@ -356,12 +475,22 @@ export async function main(argv) {
       if (!rest[0]) throw new Error('검색할 이름 패턴을 준다: fig find <패턴> [대상]')
       const hits = findNodes(await metadataNodes(rest[1], opts), rest[0], opts)
       if (!hits.length) { process.stderr.write(`일치하는 노드가 없다: ${rest[0]}\n`); return 1 }
-      emit(opts.json ? JSON.stringify(hits, null, 2) : renderFind(hits), opts.out)
+      const { shown, more } = opts.out ? { shown: hits, more: 0 } : limitHits(hits, opts.limit)
+      emit(opts.json ? JSON.stringify(shown, null, 2) : renderFind(shown), opts.out)
+      if (more) process.stderr.write(`fig: ${more}건 더 있다 (--limit 0 으로 전부, -o 로 파일에 저장)\n`)
+      return 0
+    }
+    case 'index': {
+      const started = Date.now()
+      const xml = splitServerNotes(await callTool('get_metadata', { nodeId: '0:0' }, opts)).text
+      const meta = writeIndex(xml, parseMetadata(xml))
+      process.stderr.write(`fig: 색인을 만들었다 — ${meta.count}노드, 캔버스 ${meta.canvases.length}개, ${((Date.now() - started) / 1000).toFixed(1)}초 (${CACHE_DIR})\n`)
       return 0
     }
     case 'tools': {
       const r = await rpc('tools/list', {}, opts)
       if (opts.raw) { emit(JSON.stringify(r, null, 2), opts.out); return 0 }
+      if (!Array.isArray(r?.tools)) throw new Error('서버가 도구 목록(tools)을 주지 않았다 — --raw 로 원문을 확인한다.')
       emit(r.tools.map((t) => {
         const props = Object.entries(t.inputSchema?.properties || {})
         const req = new Set(t.inputSchema?.required || [])
