@@ -375,6 +375,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
         const body = await req.json()
         if (body.method === 'initialize') return sse({ jsonrpc: '2.0', id: body.id, result: {} }, 'S')
         if (body.method === 'notifications/initialized') return new Response(null, { status: 202 })
+        if (req.headers.get('mcp-session-id') === 'STALE') return new Response('{"error":{"code":-32002,"message":"No session found"}}', { status: 404 })
         calls += 1
         return sse({ jsonrpc: '2.0', id: body.id, result: toolResult })
       },
@@ -629,6 +630,15 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     assert.equal(r.code, 0)
     assert.equal(r.calls, 0)
     for (const word of ['usage', '--force', 'FIG_BUDGET_MCP_DAY', 'FIG_BUDGET_REST_MIN', 'calls-<날짜>.jsonl']) assert.ok(r.out.includes(word), word)
+  })
+  test('만료된 세션의 404 재시도는 원장에 남지만 호출 수와 반복 집계에는 세지 않는다', async () => {
+    const stale = (dir) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'session'), 'STALE\n') }
+    const r = await run(metadataResult, ['find', 'chevron', '--limit', '0'], { prepare: stale })
+    assert.equal(r.code, 0)
+    assert.deepEqual(r.ledger.filter((c) => c.kind === 'tools/call').map((c) => c.http), [404, 200])
+    assert.match(repeatLines(r.ledger).join('\n'), /tools\/call 1회 중 대상 노드가 있는 1회에서 같은 도구·노드를 다시 부른 것 0회/)
+    assert.deepEqual(checkBudget('mcp', r.ledger, { FIG_BUDGET_MCP_DAY: '2' }), [])
+    assert.equal(checkBudget('mcp', r.ledger, { FIG_BUDGET_MCP_DAY: '1' }).length, 1)
   })
   test('도구 호출은 대상 노드 id 와 함께 원장에 남고, 대상이 없으면 null 이다', async () => {
     const withTarget = await run(metadataResult, ['meta', '7327-61763'])

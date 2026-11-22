@@ -130,7 +130,8 @@ fig usage                 이 CLI 가 보낸 요청의 집계, 같은 도구·�
   송신 지점이라 두 곳에서 한 줄씩 `${XDG_STATE_HOME:-~/.local/state}/fig/calls-<날짜>.jsonl` 에
   덧붙인다(시각·백엔드·종류·도구·상태·소요 시간·바이트·명령 이름, 응답 본문과 토큰은 없다).
   날짜별 파일이라 기록 비용은 호출당 일정하고 읽기는 최근 이틀 분량으로 끝난다.
-  `initialize`·`tools/list` 도 기록하지만 예산에는 `tools/call` 과 REST 만 센다. `tools/call` 에는
+  `initialize`·`tools/list` 도 기록하지만 예산에는 `tools/call` 과 REST 만 센다. 세션이 만료돼 404 를 받은
+  `tools/call` 은 도구가 실행되지 않았으므로(재초기화 뒤 다시 보낸다) 예산과 반복 호출 집계에서 뺀다. `tools/call` 에는
   대상 노드 id(`node`, 대상을 생략해 선택 노드를 쓰면 `null`)가 같이 남고, `fig usage` 가 최근 24시간에
   같은 도구·노드를 다시 부른 횟수를 센다. 응답을 노드 단위로 캐시할 가치를 가늠하는 값이며, 인자 중
   `nodeId` 외의 값(`forceCode` 등)이 달라도 같은 호출로 센다.
