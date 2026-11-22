@@ -125,19 +125,27 @@ async function rpc(method, params, { noCache = false, timeoutMs = DEFAULT_TIMEOU
   return json.result
 }
 
+const RATE_LIMIT_DOC = 'https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/'
+
 export function describeServerError(message, code) {
+  const original = code === undefined ? message : `${message} (code ${code})`
   if (/only available if your active tab is a design or FigJam file/i.test(message)) {
     return new Error('Figma 의 활성 탭이 디자인·FigJam 파일이 아니다 — 파일 탭을 하나 열어 활성 탭으로 둔다.\n' +
-      `  (서버 응답: ${message} (code ${code}))`)
+      `  (서버 응답: ${original})`)
   }
-  return new Error(`${message} (code ${code})`)
+  if (/rate limit exceeded/i.test(message)) {
+    return new Error('Figma MCP 읽기 호출 상한에 걸렸다 — 풀릴 때까지 meta·ctx·vars·shot·find·tree 가 막힌다(fig tools 는 상한을 받지 않았다).\n' +
+      `  같은 호출을 되풀이하지 않는다. 시트·플랜별 상한과 면제 도구는 ${RATE_LIMIT_DOC} 에 있다.\n` +
+      `  (서버 응답: ${original})`)
+  }
+  return new Error(original)
 }
 
 export async function callTool(name, args, opts) {
   const result = await rpc('tools/call', { name, arguments: args }, opts)
   if (result.isError) {
     const msg = (result.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n')
-    throw new Error(msg || `${name} 호출이 실패했다`)
+    throw describeServerError(msg || `${name} 호출이 실패했다`)
   }
   return result
 }
@@ -513,6 +521,6 @@ export async function main(argv) {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main(process.argv.slice(2))
-    .then((code) => process.exit(code))
-    .catch((err) => { process.stderr.write(`fig: ${err?.message || err}\n`); process.exit(1) })
+    .then((code) => { process.exitCode = code })
+    .catch((err) => { process.stderr.write(`fig: ${err?.message || err}\n`); process.exitCode = 1 })
 }

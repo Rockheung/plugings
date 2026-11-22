@@ -1,6 +1,5 @@
 // bun test plugins/figma-cli/tests/
 //
-// 네트워크를 타지 않는 순수 함수만 잠근다 — Figma 앱이 없는 CI 에서도 돌아야 한다.
 // 고정 입력은 실제 서버 응답에서 잘라 온 것이다(2026-09-09, [DM] Widget Studio).
 
 import { test, describe } from 'bun:test'
@@ -208,6 +207,16 @@ describe('오류 메시지', () => {
   test('그 밖의 서버 오류는 원문과 코드를 그대로 낸다', () => {
     assert.equal(describeServerError('Node with guid 1:2 is invalid', -32603).message, 'Node with guid 1:2 is invalid (code -32603)')
   })
+  test('코드가 없는 오류는 원문만 낸다', () => {
+    assert.equal(describeServerError('Node with guid 1:2 is invalid').message, 'Node with guid 1:2 is invalid')
+  })
+  test('호출 상한 오류: 막히는 명령과 공식 문서 주소를 알리고 서버 원문을 함께 낸다', () => {
+    const msg = describeServerError('Rate limit exceeded, please try again tomorrow').message
+    assert.match(msg, /읽기 호출 상한에 걸렸다/)
+    assert.match(msg, /meta·ctx·vars·shot·find·tree/)
+    assert.match(msg, /developers\.figma\.com\/docs\/figma-mcp-server\/rate-limits-access/)
+    assert.match(msg, /\(서버 응답: Rate limit exceeded, please try again tomorrow\)/)
+  })
 })
 
 describe('splitServerNotes — 이미지가 앞서는 응답', () => {
@@ -345,4 +354,54 @@ describe('색인 — 저장하고 읽어도 라이브와 같은 노드다', () =
   test('노드가 없는 문서는 색인으로 만들지 않는다', () => withDir((dir) => {
     assert.throws(() => writeIndex('', [], dir), /노드가 없어/)
   }))
+})
+
+describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
+  const FIG = path.join(import.meta.dir, '../skills/figma/scripts/fig.mjs')
+  const sse = (obj, sid) => new Response(`event: message\ndata: ${JSON.stringify(obj)}\n\n`,
+    { headers: { 'content-type': 'text/event-stream', ...(sid ? { 'mcp-session-id': sid } : {}) } })
+
+  const run = async (toolResult, args, { viaShellPipe = false } = {}) => {
+    const server = Bun.serve({
+      port: 0,
+      async fetch(req) {
+        const body = await req.json()
+        if (body.method === 'initialize') return sse({ jsonrpc: '2.0', id: body.id, result: {} }, 'S')
+        if (body.method === 'notifications/initialized') return new Response(null, { status: 202 })
+        return sse({ jsonrpc: '2.0', id: body.id, result: toolResult })
+      },
+    })
+    const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-test-'))
+    try {
+      const command = viaShellPipe
+        ? ['sh', '-c', '"$0" "$@" | cat', process.execPath, FIG, ...args]
+        : [process.execPath, FIG, ...args]
+      const proc = Bun.spawn(command, {
+        env: { ...process.env, FIG_MCP_URL: `http://127.0.0.1:${server.port}/mcp`, XDG_CACHE_HOME: cache },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      })
+      const [out, err, code] = await Promise.all([new Response(proc.stdout).arrayBuffer(), new Response(proc.stderr).text(), proc.exited])
+      return { bytes: out.byteLength, err, code }
+    } finally {
+      server.stop(true)
+      fs.rmSync(cache, { recursive: true, force: true })
+    }
+  }
+
+  test('128KB 를 넘는 출력도 셸 파이프로 끝까지 나온다', async () => {
+    const text = '가나다 abc 0123456789\n'.repeat(20000)
+    const { bytes } = await run({ content: [{ type: 'text', text }] }, ['call', 'get_x', '{}'], { viaShellPipe: true })
+    assert.equal(bytes, Buffer.byteLength(text))
+  })
+  test('큰 출력도 종료 코드는 0 이다', async () => {
+    const text = '가나다 abc 0123456789\n'.repeat(20000)
+    const { code } = await run({ content: [{ type: 'text', text }] }, ['call', 'get_x', '{}'])
+    assert.equal(code, 0)
+  })
+  test('호출 상한 오류는 종료 코드 1 과 한국어 안내를 stderr 로 낸다', async () => {
+    const { err, code } = await run({ isError: true, content: [{ type: 'text', text: 'Rate limit exceeded, please try again tomorrow' }] }, ['vars', '1:2'])
+    assert.equal(code, 1)
+    assert.match(err, /읽기 호출 상한에 걸렸다/)
+  })
 })
