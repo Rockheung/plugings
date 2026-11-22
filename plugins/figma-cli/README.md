@@ -2,7 +2,7 @@
 
 Figma 데스크톱 앱은 로컬에 Dev Mode MCP 서버를 띄운다(`http://127.0.0.1:3845/mcp`).
 `fig` 는 그 서버의 도구 10개를 셸에서 부르는 CLI 다. 의존성 없음 — bun 의
-`fetch`/`Buffer` 만 쓴다.
+`fetch`/`Buffer` 와 `node:` 내장 모듈만 쓰고, 실행에 bun 이 필요하다.
 
 ## MCP 도구가 있는데 왜 CLI 인가
 
@@ -27,12 +27,18 @@ ln -sf <이 레포 체크아웃>/plugins/figma-cli/skills/figma/scripts/fig.mjs 
 ## 명령
 
 ```
-fig ctx   [대상]          디자인 컨텍스트(참조 코드·토큰). get_design_context
-fig meta  [대상]          노드 트리 메타데이터 XML. get_metadata
-fig shot  [대상]          PNG 스크린샷. get_screenshot
-fig vars  [대상]          변수 정의. get_variable_defs
+찾기 — 문서 전체에서 노드를 찾는다
+fig find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지 (기본 50건까지)
 fig tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트)
-fig find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지
+fig index                 문서 전체를 받아 저장. find·tree 에 --index 를 주면 저장본으로 답한다
+
+보기 — 노드 하나를 자세히 본다
+fig meta  [대상]          노드 트리 메타데이터 XML. get_metadata
+fig ctx   [대상]          디자인 컨텍스트(참조 코드·토큰). get_design_context
+fig vars  [대상]          변수 정의. get_variable_defs
+fig shot  [대상]          PNG 스크린샷. get_screenshot
+
+저수준
 fig tools                 서버가 제공하는 도구 목록과 인자
 fig call  <도구> [JSON]   도구를 이름으로 직접 호출
 ```
@@ -40,13 +46,16 @@ fig call  <도구> [JSON]   도구를 이름으로 직접 호출
 **대상**은 Figma URL 을 그대로 붙여넣거나(`?node-id=7327-61763`), `7327-61763`,
 `7327:61763` 을 준다. 생략하면 Figma 에서 지금 선택한 노드를 쓴다.
 
-옵션: `-o/--out FILE` · `--json` · `-d/--depth N` · `--hidden` · `--raw` ·
+찾기 옵션: `--type T` · `--prop 이름=값` · `--square N|A-B` · `--limit N` · `--index` ·
+`--hidden` · `-d/--depth N`. 공통 옵션: `-o/--out FILE` · `--json` · `--raw` ·
 `--timeout SEC` · `--no-cache` · `-h/--help`. 엔드포인트는 `FIG_MCP_URL` 로 바꾼다.
 
 ```bash
 fig tree                                          # 캔버스 목록
 fig find 'modalHeader'                            # 이름으로 찾기
-fig ctx 7327-61763 -o header.tsx                  # 65KB 를 파일로 → grep
+fig index && fig find . --type instance --square 8-48 --index   # 아이콘 인스턴스 후보
+fig find . --prop Orientation=Portrait --index    # 변형 속성으로 찾기
+fig ctx 7327-61763 -o header.tsx                  # 큰 출력은 파일로 → grep
 fig shot 'https://figma.com/design/…?node-id=7327-61763' -o header.png
 fig tree --json | jq '.[] | select(.width > 1000) | {name, width}'
 fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
@@ -80,6 +89,23 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
   `disableCodeConnect` 는 서버 도구 스키마에 없는 인자라 권하지 않는다.
 - **응답 대기 상한은 30초다.** 넘으면 도구 이름과 초를 알리는 오류로 끝나고,
   `--timeout` 으로 바꾼다. 연결 거부(`ECONNREFUSED`)와는 다른 메시지다.
+- **서버가 활성 탭이 파일이 아니라고 답하면** 한국어로 대처를 안내한다. 서버 원문은
+  괄호로 함께 낸다.
+- **`find` 는 stdout 에 50건까지만 낸다.** 남은 건수를 stderr 로 알린다. `--limit 0` 은
+  제한 없음이고, `-o` 로 파일에 쓸 때는 전부 쓴다. `--json` 도 같은 상한을 받지만
+  잘려도 유효한 JSON 배열이다.
+- **`--type`·`--prop`·`--square` 는 `findNodes` 한 곳에서 거른다.** 색인으로 찾을 때와
+  서버에서 바로 받아 찾을 때가 같은 함수를 지나므로 결과가 같다. 이름 패턴은 대소문자를
+  무시하는 정규식이고, `--prop` 은 이름을 `, ` 로 나눈 조각이 `이름=값` 과 정확히
+  같을 때만 일치한다.
+- **색인은 받아 온 `get_metadata` 원문을 gzip 한 파일 한 벌이다**
+  (`${XDG_CACHE_HOME:-~/.cache}/fig/index.xml.gz` 와 메타 `index.json`). 이 문서
+  16,790노드 기준 160KB, 읽기·파싱·검색 약 30ms 다. 노드 수에 비례해서 10배면 약
+  0.3초로 추정한다(실측 아님). 서버가 문서 변경을 알려 주지 않으므로 조회마다 색인의
+  마지막 노드를 서버에 물어 id·타입·이름·좌표·크기·숨김이 같은지 확인한다. 다르거나
+  노드가 없으면 `fig index` 로 다시 만들라고 알리고 답하지 않는다. 그래서 색인 조회는
+  서버를 한 번 거쳐 약 0.5초다. 파일이 한 벌이라 다른 문서로 오답할 일이 없고, 문서를
+  바꿔 가며 쓰면 그때마다 다시 만든다.
 - **`clientLanguages`/`clientFrameworks` 는 옵션으로 열지 않았다.** 스키마 설명이
   로깅 전용이라 했고, `vue` 와 `unknown` 으로 같은 노드를 불러 출력이 바이트까지
   동일한 것을 확인했다. 항상 `unknown` 을 보낸다.
@@ -90,5 +116,5 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
 cd plugins/figma-cli && bun test tests/
 ```
 
-네트워크를 타지 않는 순수 함수(URL 파싱·SSE 파싱·XML 파싱·트리·검색·인자)만
-잠근다. Figma 앱이 없는 곳에서도 돈다.
+네트워크를 타지 않는 순수 함수(URL 파싱·SSE 파싱·XML 파싱·트리·검색·필터·인자·서버 문구
+분리·오류 메시지)와 색인 저장·읽기(임시 디렉터리)만 잠근다. Figma 앱이 없는 곳에서도 돈다.
