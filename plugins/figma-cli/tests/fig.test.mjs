@@ -132,9 +132,9 @@ describe('parseArgs', () => {
   test('--depth 에 숫자가 아닌 값', () => {
     assert.throws(() => parseArgs(['tree', '-d', 'x']), /숫자/)
   })
-  test('--timeout 은 초 단위를 밀리초로 바꾸고, 기본은 30초', () => {
+  test('--timeout 은 초 단위를 밀리초로 바꾸고, 기본은 15초', () => {
     assert.equal(parseArgs(['ctx', '--timeout', '45']).opts.timeoutMs, 45000)
-    assert.equal(parseArgs(['ctx']).opts.timeoutMs, 30000)
+    assert.equal(parseArgs(['ctx']).opts.timeoutMs, 15000)
   })
   test('--timeout 에 숫자가 아니거나 0 이하인 값', () => {
     assert.throws(() => parseArgs(['ctx', '--timeout', 'x']), /--timeout/)

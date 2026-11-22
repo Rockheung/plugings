@@ -94,7 +94,7 @@ exceeded, please try again tomorrow` 로 막히고 풀리는 시각은 문서에
 | `읽기 호출 상한에 걸렸다` | Figma MCP 호출 상한 초과 | 호출을 되풀이하지 않고 기다린다. 사용자에게 알린다 |
 | `활성 탭이 디자인·FigJam 파일이 아니다` | 서버가 파일 탭이 없다고 답함 | Figma 에서 파일 탭을 활성으로 |
 | `…에 연결하지 못했다` | 포트 3845 에 서버가 없음 | 앱 실행, Enable local MCP server |
-| `<도구> 응답이 N초 안에 오지 않았다` | 기본 30초 상한 초과 | `fig meta`·`vars` 가 응답하는지 먼저 본다. 큰 노드면 `--timeout 초` |
+| `<도구> 응답이 N초 안에 오지 않았다` | 기본 15초 상한 초과 | `fig meta`·`vars` 가 응답하는지 먼저 본다. 큰 노드면 `--timeout 초` |
 | `활성 파일이 색인과 다르거나 오래됐다` | 색인과 지금 파일이 안 맞음 | `fig index` |
 
 `get_design_context`·`tools/list` 만 한동안 응답하지 않고 `meta`·`vars`·`shot` 은 응답한
