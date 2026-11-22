@@ -10,7 +10,8 @@ import path from 'node:path'
 
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
   splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
-  limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS }
+  limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS,
+  parseFileKey, readToken, fetchFileMeta }
   from '../skills/figma/scripts/fig.mjs'
 
 describe('parseNodeId — URL 을 그대로 붙여넣어도 받는다', () => {
@@ -361,8 +362,10 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
   const sse = (obj, sid) => new Response(`event: message\ndata: ${JSON.stringify(obj)}\n\n`,
     { headers: { 'content-type': 'text/event-stream', ...(sid ? { 'mcp-session-id': sid } : {}) } })
 
-  const run = async (toolResult, args, { viaShellPipe = false, prepare = null } = {}) => {
+  const run = async (toolResult, args, { viaShellPipe = false, prepare = null, env = {}, rest = null } = {}) => {
     let calls = 0
+    let restCalls = 0
+    let restToken = null
     const server = Bun.serve({
       port: 0,
       async fetch(req) {
@@ -373,6 +376,14 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
         return sse({ jsonrpc: '2.0', id: body.id, result: toolResult })
       },
     })
+    const restServer = rest && Bun.serve({
+      port: 0,
+      fetch(req) {
+        restCalls += 1
+        restToken = req.headers.get('x-figma-token')
+        return rest(req)
+      },
+    })
     const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-test-'))
     try {
       prepare?.(path.join(cache, 'fig'))
@@ -380,14 +391,25 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
         ? ['sh', '-c', '"$0" "$@" | cat', process.execPath, FIG, ...args]
         : [process.execPath, FIG, ...args]
       const proc = Bun.spawn(command, {
-        env: { ...process.env, FIG_MCP_URL: `http://127.0.0.1:${server.port}/mcp`, XDG_CACHE_HOME: cache },
+        env: {
+          ...process.env,
+          FIG_MCP_URL: `http://127.0.0.1:${server.port}/mcp`,
+          XDG_CACHE_HOME: cache,
+          XDG_CONFIG_HOME: cache,
+          FIGMA_TOKEN: '',
+          ...(restServer ? { FIG_REST_URL: `http://127.0.0.1:${restServer.port}` } : {}),
+          ...env,
+        },
         stdout: 'pipe',
         stderr: 'pipe',
       })
       const [out, err, code] = await Promise.all([new Response(proc.stdout).arrayBuffer(), new Response(proc.stderr).text(), proc.exited])
-      return { bytes: out.byteLength, out: Buffer.from(out).toString('utf8'), err, code, calls }
+      const metaPath = path.join(cache, 'fig', 'index.json')
+      const indexMeta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, 'utf8')) : null
+      return { bytes: out.byteLength, out: Buffer.from(out).toString('utf8'), err, code, calls, restCalls, restToken, indexMeta }
     } finally {
       server.stop(true)
+      restServer?.stop(true)
       fs.rmSync(cache, { recursive: true, force: true })
     }
   }
@@ -409,7 +431,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
   })
 
   const probeNode = (name) => ({ content: [{ type: 'text', text: `<frame id="6040:500" name="${name}" x="0" y="0" width="24" height="24" hidden="true" />` }] })
-  const indexBuiltAt = (builtAt) => (dir) => writeIndex(FILTER_XML, filterNodes, dir, builtAt)
+  const indexBuiltAt = (builtAt, file = null) => (dir) => writeIndex(FILTER_XML, filterNodes, dir, builtAt, file)
 
   test('5분 이내 색인은 서버를 부르지 않고 답한다', async () => {
     const { out, err, code, calls } = await run(probeNode('square-hidden'), ['find', 'chevron', '--index', '--limit', '0'], { prepare: indexBuiltAt(Date.now() - 60000) })
@@ -431,6 +453,160 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     assert.equal(calls, 1)
     assert.equal(out, '')
     assert.match(err, /색인과 다르거나/)
+  })
+
+  const TOKEN = 'figd_TEST_TOKEN_VALUE_0123456789abcdef'
+  const FILE_KEY = 'ABCDEFGHIJK1234'
+  const FILE_URL = `https://www.figma.com/design/${FILE_KEY}/Name?node-id=1-2`
+  const restMeta = (touched) => () => Response.json({ file: { name: 'N', last_touched_at: touched } })
+  const restStatus = (status) => () => new Response('{}', { status })
+  const stamp = (touched) => ({ key: FILE_KEY, lastTouchedAt: touched })
+  const stale = () => Date.now() - 60 * 60000
+  const findArgs = ['find', 'chevron', '--index', '--limit', '0']
+  const metadataResult = { content: [{ type: 'text', text: FILTER_XML }] }
+
+  test('fig index <URL>: 만들 때 파일의 마지막 편집 기록을 REST meta 로 받아 색인에 저장한다', async () => {
+    const r = await run(metadataResult, ['index', FILE_URL], { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1') })
+    assert.equal(r.code, 0)
+    assert.deepEqual(r.indexMeta.file, stamp('T1'))
+    assert.equal(r.restToken, TOKEN)
+    assert.equal(r.calls, 1)
+    assert.equal(r.out.includes(TOKEN) || r.err.includes(TOKEN), false)
+  })
+  test('fig index <URL> 인데 토큰이 없으면 MCP 를 부르기 전에 안내하고 끝난다', async () => {
+    const r = await run(metadataResult, ['index', FILE_URL], { rest: restMeta('T1') })
+    assert.equal(r.code, 1)
+    assert.equal(r.calls, 0)
+    assert.match(r.err, /토큰이 없다/)
+  })
+  test('fig index 에 URL 이 없으면 REST 를 부르지 않는다', async () => {
+    const r = await run(metadataResult, ['index'], { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1') })
+    assert.equal(r.code, 0)
+    assert.equal(r.restCalls, 0)
+    assert.equal(r.indexMeta.file, undefined)
+  })
+  test('파일 기록이 같으면 MCP 를 부르지 않고 답한다 (5분이 지난 색인도)', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1'), prepare: indexBuiltAt(stale(), stamp('T1')) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 0)
+    assert.equal(r.restCalls, 1)
+    assert.match(r.out, /chevron-up/)
+    assert.match(r.err, /파일 변경 없음 확인/)
+    assert.equal(r.out.includes(TOKEN) || r.err.includes(TOKEN), false)
+  })
+  test('파일 기록이 다르면 방금 만든 색인이라도 답하지 않고 다시 만들라고 한다', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T2'), prepare: indexBuiltAt(Date.now() - 60000, stamp('T1')) })
+    assert.equal(r.code, 1)
+    assert.equal(r.calls, 0)
+    assert.equal(r.out, '')
+    assert.match(r.err, /바뀌었다/)
+  })
+  test('REST 가 실패하면 알리고 5분 규칙으로 돌아간다: 오래된 색인은 MCP 로 확인한다', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restStatus(401), prepare: indexBuiltAt(stale(), stamp('T1')) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 1)
+    assert.match(r.err, /파일 변경 확인에 실패해 5분 규칙으로 답한다 — 토큰이 무효/)
+    assert.equal(r.out.includes(TOKEN) || r.err.includes(TOKEN), false)
+  })
+  test('REST 가 실패해도 5분 미만 색인은 MCP 를 부르지 않는다', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restStatus(429), prepare: indexBuiltAt(Date.now() - 60000, stamp('T1')) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 0)
+    assert.match(r.err, /호출 한도에 걸렸다/)
+  })
+  test('색인에 파일 기록이 있는데 토큰이 없으면 알리고 5분 규칙으로 답한다', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { rest: restMeta('T1'), prepare: indexBuiltAt(Date.now() - 60000, stamp('T1')) })
+    assert.equal(r.code, 0)
+    assert.equal(r.restCalls, 0)
+    assert.equal(r.calls, 0)
+    assert.match(r.err, /토큰이 없어 파일 변경 확인을 건너뛴다/)
+  })
+  test('파일 기록이 없는 색인은 REST 를 부르지 않는다', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1'), prepare: indexBuiltAt(Date.now() - 60000) })
+    assert.equal(r.code, 0)
+    assert.equal(r.restCalls, 0)
+  })
+})
+
+describe('파일 키·토큰·REST meta', () => {
+  test('parseFileKey: URL·브랜치 URL·키', () => {
+    assert.equal(parseFileKey('https://www.figma.com/design/ZsugR6FJKIGjbKBv7DLdiZ/-DM--Widget-Studio?node-id=7327-61763&m=dev'), 'ZsugR6FJKIGjbKBv7DLdiZ')
+    assert.equal(parseFileKey('https://www.figma.com/file/abcDEF1234xyz/Name'), 'abcDEF1234xyz')
+    assert.equal(parseFileKey('https://www.figma.com/board/boardKEY12345/Name'), 'boardKEY12345')
+    assert.equal(parseFileKey('https://www.figma.com/design/mainKEY12345/branch/branchKEY123/Name'), 'branchKEY123')
+    assert.equal(parseFileKey('hb1q5e319upKpnNjtJzbQs'), 'hb1q5e319upKpnNjtJzbQs')
+  })
+  test('parseFileKey: 읽을 수 없는 입력은 받는 형식을 알린다', () => {
+    assert.throws(() => parseFileKey('https://example.com/x'), /파일 키를 못 읽었다/)
+    assert.throws(() => parseFileKey(''), /파일 키를 못 읽었다/)
+    assert.throws(() => parseFileKey('짧은'), /파일 키를 못 읽었다/)
+  })
+
+  const withDir = (fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-test-'))
+    try { return fn(dir) } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+  test('readToken: 환경변수가 파일보다 앞선다', () => withDir((dir) => {
+    fs.writeFileSync(path.join(dir, 'token'), Buffer.from('from-file').toString('base64'))
+    assert.equal(readToken({ FIGMA_TOKEN: ' from-env ' }, dir), 'from-env')
+  }))
+  test('readToken: 환경변수가 없으면 base64 파일을 푼다(앞뒤 공백·줄바꿈 제거)', () => withDir((dir) => {
+    fs.writeFileSync(path.join(dir, 'token'), `${Buffer.from('from-file').toString('base64')}\n`)
+    assert.equal(readToken({}, dir), 'from-file')
+  }))
+  test('readToken: 아무것도 없으면 null', () => withDir((dir) => {
+    assert.equal(readToken({}, dir), null)
+    assert.equal(readToken({ FIGMA_TOKEN: '  ' }, dir), null)
+  }))
+
+  const TOKEN = 'figd_UNIT_TOKEN_0123456789'
+  const withRest = async (handler, fn) => {
+    const server = Bun.serve({ port: 0, fetch: handler })
+    const before = process.env.FIG_REST_URL
+    process.env.FIG_REST_URL = `http://127.0.0.1:${server.port}`
+    try { return await fn() } finally {
+      if (before === undefined) delete process.env.FIG_REST_URL
+      else process.env.FIG_REST_URL = before
+      server.stop(true)
+    }
+  }
+  test('fetchFileMeta: 마지막 편집 기록과 이름을 읽고 토큰을 X-Figma-Token 으로 보낸다', async () => {
+    let seen
+    const handler = (req) => { seen = [new URL(req.url).pathname, req.headers.get('x-figma-token')]; return Response.json({ file: { name: 'N', last_touched_at: 'T1' } }) }
+    const got = await withRest(handler, () => fetchFileMeta('KEY1234567', TOKEN, 5000))
+    assert.deepEqual(got, { lastTouchedAt: 'T1', name: 'N' })
+    assert.deepEqual(seen, ['/v1/files/KEY1234567/meta', TOKEN])
+  })
+  test('fetchFileMeta: 상태 코드별 한국어 오류, 오류 메시지에 토큰이 들어가지 않는다', async () => {
+    for (const [status, pattern] of [[401, /토큰이 무효/], [403, /토큰이 무효/], [404, /파일을 찾지 못했다/], [500, /HTTP 500/]]) {
+      const err = await withRest(() => new Response('{}', { status }), () => fetchFileMeta('KEY1234567', TOKEN, 5000).catch((e) => e))
+      assert.match(err.message, pattern)
+      assert.equal(err.message.includes(TOKEN), false)
+    }
+  })
+  test('fetchFileMeta: 429 는 Retry-After 를 알린다', async () => {
+    const err = await withRest(() => new Response('{}', { status: 429, headers: { 'retry-after': '42' } }), () => fetchFileMeta('KEY1234567', TOKEN, 5000).catch((e) => e))
+    assert.match(err.message, /HTTP 429, Retry-After 42초/)
+  })
+  test('fetchFileMeta: last_touched_at 이 없는 응답은 오류다', async () => {
+    const err = await withRest(() => Response.json({ file: {} }), () => fetchFileMeta('KEY1234567', TOKEN, 5000).catch((e) => e))
+    assert.match(err.message, /last_touched_at/)
+  })
+  test('fetchFileMeta: 응답이 없으면 대기 상한을 알리고, 연결이 안 되면 연결 실패를 알린다', async () => {
+    const hang = await withRest(() => new Promise(() => {}), () => fetchFileMeta('KEY1234567', TOKEN, 300).catch((e) => e))
+    assert.match(hang.message, /안에 응답이 오지 않았다/)
+    const server = Bun.serve({ port: 0, fetch: () => new Response('x') })
+    const port = server.port
+    server.stop(true)
+    const before = process.env.FIG_REST_URL
+    process.env.FIG_REST_URL = `http://127.0.0.1:${port}`
+    try {
+      const refused = await fetchFileMeta('KEY1234567', TOKEN, 2000).catch((e) => e)
+      assert.match(refused.message, /연결하지 못했다/)
+    } finally {
+      if (before === undefined) delete process.env.FIG_REST_URL
+      else process.env.FIG_REST_URL = before
+    }
   })
 })
 

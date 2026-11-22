@@ -14,6 +14,7 @@ import zlib from 'node:zlib'
 export const ENDPOINT = process.env.FIG_MCP_URL || 'http://127.0.0.1:3845/mcp'
 const CACHE_DIR = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'fig')
 const CACHE_FILE = path.join(CACHE_DIR, 'session')
+const CONFIG_DIR = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'fig')
 
 // ── 인자 파싱 ────────────────────────────────────────────────────────────────
 
@@ -277,7 +278,50 @@ export function agoText(ms) {
 export const sameNode = (a, b) =>
   ['id', 'type', 'name', 'x', 'y', 'width', 'height', 'hidden'].every((k) => a[k] === b[k])
 
-export function writeIndex(xml, nodes, dir = CACHE_DIR, now = Date.now()) {
+export function parseFileKey(input) {
+  const text = String(input ?? '').trim()
+  const url = /figma\.com\/(?:design|file|board|slides)\/([A-Za-z0-9]+)(?:\/branch\/([A-Za-z0-9]+))?/.exec(text)
+  if (url) return url[2] ?? url[1]
+  if (/^[A-Za-z0-9]{10,}$/.test(text)) return text
+  throw new Error(`파일 키를 못 읽었다: ${input}\n  받는 형식: Figma 파일 URL(https://www.figma.com/design/<파일키>/…) 또는 파일 키`)
+}
+
+export function readToken(env = process.env, dir = CONFIG_DIR) {
+  if (env.FIGMA_TOKEN?.trim()) return env.FIGMA_TOKEN.trim()
+  try {
+    return Buffer.from(fs.readFileSync(path.join(dir, 'token'), 'utf8').trim(), 'base64').toString('utf8').trim() || null
+  } catch {
+    return null
+  }
+}
+
+const restUrl = () => process.env.FIG_REST_URL || 'https://api.figma.com'
+
+function restStatusError(res) {
+  if (res.status === 401 || res.status === 403) return new Error(`토큰이 무효하거나 권한이 없다 (HTTP ${res.status})`)
+  if (res.status === 404) return new Error('파일을 찾지 못했다 (HTTP 404)')
+  if (res.status === 429) return new Error(`호출 한도에 걸렸다 (HTTP 429, Retry-After ${res.headers.get('retry-after') ?? '없음'}초)`)
+  return new Error(`HTTP ${res.status}`)
+}
+
+export async function fetchFileMeta(fileKey, token, timeoutMs) {
+  try {
+    const res = await fetch(`${restUrl()}/v1/files/${fileKey}/meta`, {
+      headers: { 'X-Figma-Token': token },
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+    if (!res.ok) throw restStatusError(res)
+    const { file } = await res.json()
+    if (!file?.last_touched_at) throw new Error('응답에 last_touched_at 이 없다')
+    return { lastTouchedAt: file.last_touched_at, name: file.name ?? null }
+  } catch (err) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') throw new Error(`${timeoutMs / 1000}초 안에 응답이 오지 않았다`)
+    if (err instanceof TypeError) throw new Error(`연결하지 못했다 (${err?.cause?.code || err.name})`)
+    throw err
+  }
+}
+
+export function writeIndex(xml, nodes, dir = CACHE_DIR, now = Date.now(), file = null) {
   const last = nodes.at(-1)
   if (!last) throw new Error('문서에 노드가 없어 색인을 만들 수 없다')
   const { id, type, name, x, y, width, height, hidden } = last
@@ -286,6 +330,7 @@ export function writeIndex(xml, nodes, dir = CACHE_DIR, now = Date.now()) {
     count: nodes.length,
     canvases: nodes.filter((n) => n.type === 'canvas' && !n.hidden).map((n) => n.name.trim()),
     probe: { id, type, name, x, y, width, height, hidden },
+    ...(file && { file }),
   }
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, INDEX_XML), zlib.gzipSync(xml))
@@ -317,15 +362,43 @@ export const INDEX_TRUST_MS = 5 * 60 * 1000
 
 export const isFreshIndex = (builtAt, now = Date.now()) => now >= builtAt && now - builtAt < INDEX_TRUST_MS
 
+async function fileStamp(key, opts) {
+  const token = readToken()
+  if (!token) throw new Error('파일 키를 받았지만 토큰이 없다 — FIGMA_TOKEN 또는 ~/.config/fig/token 에 Figma 개인 액세스 토큰을 둔다')
+  const { lastTouchedAt } = await fetchFileMeta(key, token, opts.timeoutMs)
+  return { key, lastTouchedAt }
+}
+
+async function restFreshness(meta, opts) {
+  if (!meta.file) return null
+  const token = readToken()
+  if (!token) {
+    process.stderr.write('fig: 토큰이 없어 파일 변경 확인을 건너뛴다 (FIGMA_TOKEN 또는 ~/.config/fig/token)\n')
+    return null
+  }
+  try {
+    const live = await fetchFileMeta(meta.file.key, token, opts.timeoutMs)
+    return live.lastTouchedAt === meta.file.lastTouchedAt ? 'same' : 'changed'
+  } catch (err) {
+    process.stderr.write(`fig: 파일 변경 확인에 실패해 5분 규칙으로 답한다 — ${err.message}\n`)
+    return null
+  }
+}
+
 async function indexedNodes(nodeId, opts) {
   if (nodeId !== '0:0') throw new Error('--index 는 문서 전체(대상 생략)에만 쓴다 — 하위 트리는 --index 없이 조회한다.')
   const { meta, nodes } = readIndex()
   const age = agoText(Date.now() - meta.builtAt)
+  const rest = await restFreshness(meta, opts)
+  if (rest === 'changed') {
+    throw new Error(`Figma 파일이 색인을 만든 뒤 바뀌었다 (${age} 만듦, 마지막 편집 기록이 다르다) — fig index 로 다시 만든다.`)
+  }
   const fresh = isFreshIndex(meta.builtAt)
-  if (!fresh && !(await indexMatchesActiveFile(meta, opts))) {
+  if (rest !== 'same' && !fresh && !(await indexMatchesActiveFile(meta, opts))) {
     throw new Error(`활성 파일이 색인과 다르거나 색인이 오래됐다 (색인: ${meta.canvases[0] ?? '(캔버스 없음)'} 외, ${age} 만듦) — fig index 로 다시 만든다.`)
   }
-  process.stderr.write(`fig: 색인 기준 — ${age} 만듦, ${meta.count}노드${fresh ? ' (서버 확인 생략)' : ''}\n`)
+  const note = rest === 'same' ? ' (파일 변경 없음 확인)' : fresh ? ' (서버 확인 생략)' : ''
+  process.stderr.write(`fig: 색인 기준 — ${age} 만듦, ${meta.count}노드${note}\n`)
   return nodes
 }
 
@@ -347,8 +420,11 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 찾기 — 문서 전체에서 노드를 찾는다
   find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지 출력 (기본 50건까지)
   tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트)
-  index                 문서 전체를 받아 로컬에 저장한다. find·tree 에 --index 를 주면
-                        서버에서 문서 전체를 다시 받지 않고 저장본으로 답한다
+  index  [URL|파일키]   문서 전체를 받아 로컬에 저장한다. find·tree 에 --index 를 주면
+                        서버에서 문서 전체를 다시 받지 않고 저장본으로 답한다.
+                        파일 URL·키와 Figma 토큰(FIGMA_TOKEN 또는 ~/.config/fig/token)이 있으면
+                        파일의 마지막 편집 기록(REST meta)을 같이 저장해, 조회 때 MCP 를 부르지
+                        않고 파일이 바뀌었는지 확인한다
 
 보기 — 노드 하나를 자세히 본다
   meta  [대상]          노드 트리 메타데이터 XML. get_metadata
@@ -495,9 +571,10 @@ export async function main(argv) {
     }
     case 'index': {
       const started = Date.now()
+      const file = rest[0] ? await fileStamp(parseFileKey(rest[0]), opts) : null
       const xml = splitServerNotes(await callTool('get_metadata', { nodeId: '0:0' }, opts)).text
-      const meta = writeIndex(xml, parseMetadata(xml))
-      process.stderr.write(`fig: 색인을 만들었다 — ${meta.count}노드, 캔버스 ${meta.canvases.length}개, ${((Date.now() - started) / 1000).toFixed(1)}초 (${CACHE_DIR})\n`)
+      const meta = writeIndex(xml, parseMetadata(xml), CACHE_DIR, Date.now(), file)
+      process.stderr.write(`fig: 색인을 만들었다 — ${meta.count}노드, 캔버스 ${meta.canvases.length}개, ${((Date.now() - started) / 1000).toFixed(1)}초${file ? `, 파일 ${file.key} 의 마지막 편집 기록 저장` : ''} (${CACHE_DIR})\n`)
       return 0
     }
     case 'tools': {

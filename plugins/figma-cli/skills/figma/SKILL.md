@@ -36,9 +36,15 @@ fig find . --prop Orientation=Portrait    # 이름의 변형 속성 이름=값
 약 1.7초). `fig index` 로 한 번 저장하면 `fig find … --index`, `fig tree --index` 가
 저장본으로 답한다(출력은 색인 없이 부른 것과 같다). 만든 지 5분 미만이면 서버를 부르지
 않고(호출 0회) 답하고, 그 뒤에는 서버에 마지막 노드를 한 번 물어 확인한 다음 답한다(약 0.5초).
-- 색인은 **한 벌**이다. 5분 미만일 때는 확인하지 않으므로(stderr 에 `서버 확인 생략`), 그 사이
-  다른 파일을 열었거나 문서를 편집했다면 `fig index` 로 다시 만든다. 5분이 지난 색인은
-  `fig` 가 확인해서 다르면 "색인이 다르거나 오래됐다" 로 알려 준다.
+- **파일 URL 과 토큰이 있으면 `fig index <URL>`** 로 만든다. 파일의 마지막 편집 기록을 Figma REST
+  `meta` 로 같이 저장해 두면, 조회 때 같은 호출 한 번(MCP 호출 0회)으로 파일이 바뀌었는지
+  확인한다. 같으면 5분이 지난 색인도 그대로 답하고(stderr `파일 변경 없음 확인`), 다르면 답하지
+  않고 `fig index` 로 다시 만들라고 한다. 토큰은 `FIGMA_TOKEN` 환경변수 또는
+  `~/.config/fig/token`(토큰을 base64 로 인코딩한 한 줄, 파일 권한 0600)이다. 토큰이 없거나
+  REST 가 실패하면 알리고 아래 5분 규칙으로 답한다.
+- 색인은 **한 벌**이다. 파일 기록이 없는 색인은 5분 미만일 때 확인하지 않으므로(stderr 에 `서버
+  확인 생략`), 그 사이 다른 파일을 열었거나 문서를 편집했다면 `fig index` 로 다시 만든다.
+  5분이 지난 색인은 `fig` 가 확인해서 다르면 "색인이 다르거나 오래됐다" 로 알려 준다.
 - `--index` 는 문서 전체(대상 생략)에만 쓴다. 특정 노드 아래는 `--index` 없이 조회한다.
 
 **2. 구조를 본다**
@@ -83,8 +89,9 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
 https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/). 넘으면 `Rate limit
 exceeded, please try again tomorrow` 로 막히고 풀리는 시각은 문서에 없다.
 - 같은 호출을 되풀이하거나 여러 개를 동시에 돌리지 않는다.
-- `find`·`tree` 는 서버에서 바로 받으면 문서 전체(호출 1회)를 쓴다. `--index` 는 색인이 5분
-  미만이면 0회이고, 그 뒤에는 확인용 `get_metadata` 1회를 쓴다. 여러 번 찾을 거면 `fig index`
+- `find`·`tree` 는 서버에서 바로 받으면 문서 전체(호출 1회)를 쓴다. `--index` 는 파일 기록이 있는 색인이면
+  0회(REST 확인, MCP 상한과 별개)이고, 없으면 색인이 5분 미만일 때 0회, 그 뒤에는 확인용
+  `get_metadata` 1회를 쓴다. 여러 번 찾을 거면 `fig index`
   한 번(1회) 뒤 5분 안에 `--index` 로 찾는다.
 - `fig tools` 는 이 상한을 받지 않았다.
 
@@ -96,6 +103,8 @@ exceeded, please try again tomorrow` 로 막히고 풀리는 시각은 문서에
 | `…에 연결하지 못했다` | 포트 3845 에 서버가 없음 | 앱 실행, Enable local MCP server |
 | `<도구> 응답이 N초 안에 오지 않았다` | 기본 15초 상한 초과 | `fig meta`·`vars` 가 응답하는지 먼저 본다. 큰 노드면 `--timeout 초` |
 | `활성 파일이 색인과 다르거나 오래됐다` | 색인과 지금 파일이 안 맞음 | `fig index` |
+| `Figma 파일이 색인을 만든 뒤 바뀌었다` | 파일의 마지막 편집 기록이 색인 때와 다름 | `fig index <URL>` |
+| `파일 변경 확인에 실패해 5분 규칙으로 답한다` | REST 확인 실패(토큰 무효·한도·연결) | 메시지의 사유대로 토큰 점검, 답은 5분 규칙 기준 |
 
 `get_design_context`·`tools/list` 만 한동안 응답하지 않고 `meta`·`vars`·`shot` 은 응답한
 적이 있다(원인은 확인하지 못했다). 같은 호출을 되풀이하지 말고 멈춘 도구와 응답하는
