@@ -11,7 +11,7 @@ import path from 'node:path'
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
   splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
   limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS,
-  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, repeatLines, MCP_LIMIT_HOLD_MS }
+  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, repeatLines, outputLines, capLines, DEFAULT_TREE_LINES, MCP_LIMIT_HOLD_MS }
   from '../skills/figma/scripts/fig.mjs'
 
 process.env.XDG_STATE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-state-'))
@@ -543,14 +543,14 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
   test('MCP 요청은 전부 원장에 남는다: 초기화와 도구 호출, 명령 이름, 상태와 크기', async () => {
     const r = await run(metadataResult, ['find', 'chevron', '--limit', '0'])
     assert.equal(r.code, 0)
-    const kinds = r.ledger.map((c) => c.kind)
+    const kinds = r.ledger.filter((c) => !c.event).map((c) => c.kind)
     assert.deepEqual(kinds, ['initialize', 'notifications/initialized', 'tools/call'])
-    const call = r.ledger.at(-1)
+    const call = r.ledger.filter((c) => !c.event).at(-1)
     assert.equal(call.name, 'get_metadata')
     assert.equal(call.cmd, 'find')
     assert.equal(call.http, 200)
     assert.ok(call.bytes > 0 && call.ms >= 0)
-    assert.equal(r.ledger.length, 1 + r.calls + 1)
+    assert.equal(r.ledger.filter((c) => !c.event).length, 1 + r.calls + 1)
   })
   test('서버가 상한을 알리면 원장에 상한 기록이 남는다', async () => {
     const r = await run({ isError: true, content: [{ type: 'text', text: 'Rate limit exceeded, please try again tomorrow' }] }, ['vars', '1:2'])
@@ -630,6 +630,57 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     assert.equal(r.code, 0)
     assert.equal(r.calls, 0)
     for (const word of ['usage', '--force', 'FIG_BUDGET_MCP_DAY', 'FIG_BUDGET_REST_MIN', 'calls-<날짜>.jsonl']) assert.ok(r.out.includes(word), word)
+  })
+  const bigXml = `<document id="0:0" name="Document" x="0" y="0" width="0" height="0">\n  <canvas id="1:1" name="C" x="0" y="0" width="0" height="0">\n${Array.from({ length: 300 }, (_, i) => `    <frame id="2:${i}" name="f${i}" x="0" y="0" width="1" height="1" />`).join('\n')}\n  </canvas>\n</document>`
+  const bigResult = { content: [{ type: 'text', text: bigXml }] }
+  test('tree 는 기본 200줄까지만 stdout 에 내고 남은 줄 수와 해제 방법을 알린다', async () => {
+    const r = await run(bigResult, ['tree'])
+    assert.equal(r.code, 0)
+    assert.equal(r.out.trimEnd().split('\n').length, DEFAULT_TREE_LINES)
+    assert.match(r.err, /102줄 더 있다 \(--limit 0 으로 전부/)
+  })
+  test('tree --limit 0 과 -o 는 전부 낸다', async () => {
+    const all = await run(bigResult, ['tree', '--limit', '0'])
+    assert.equal(all.out.trimEnd().split('\n').length, 302)
+    assert.doesNotMatch(all.err, /더 있다/)
+    const file = path.join(os.tmpdir(), `fig-tree-${process.pid}.txt`)
+    try {
+      const r = await run(bigResult, ['tree', '-o', file])
+      assert.equal(fs.readFileSync(file, 'utf8').trimEnd().split('\n').length, 302)
+      assert.equal(r.out, '')
+    } finally { fs.rmSync(file, { force: true }) }
+  })
+  test('tree --limit N 은 지정한 줄 수만큼, tree --json 은 유효한 JSON 배열로 자른다', async () => {
+    const few = await run(bigResult, ['tree', '--limit', '5'])
+    assert.equal(few.out.trimEnd().split('\n').length, 5)
+    const json = await run(bigResult, ['tree', '--json'])
+    const parsed = JSON.parse(json.out)
+    assert.equal(parsed.length, DEFAULT_TREE_LINES)
+    assert.match(json.err, /102개 더 있다/)
+  })
+  test('find 의 기본 건수 상한 50 은 그대로다', async () => {
+    const r = await run(bigResult, ['find', 'f'])
+    assert.equal(r.out.trimEnd().split('\n').length, 50)
+    assert.match(r.err, /250건 더 있다/)
+  })
+  test('stdout 으로 나간 출력은 명령·바이트·줄 수와 함께 원장에 남고, 파일 출력은 구분되며, usage 는 기록하지 않는다', async () => {
+    const r = await run(bigResult, ['tree'])
+    const out = r.ledger.filter((c) => c.event === 'output')
+    assert.deepEqual(out.map((c) => [c.cmd, c.to, c.bytes, c.lines]), [['tree', 'stdout', r.bytes, DEFAULT_TREE_LINES]])
+    const file = path.join(os.tmpdir(), `fig-tree-${process.pid}-b.txt`)
+    try {
+      const f = await run(bigResult, ['tree', '-o', file])
+      assert.deepEqual(f.ledger.filter((c) => c.event === 'output').map((c) => c.to), ['file'])
+    } finally { fs.rmSync(file, { force: true }) }
+    const u = await run(bigResult, ['usage'])
+    assert.equal(u.ledger.filter((c) => c.event === 'output').length, 0)
+  })
+  test('fig usage 는 명령별 stdout 합계를 큰 순서로 보여 주고 파일 출력과 24시간 밖은 뺀다', async () => {
+    const out = (cmd, bytes, to = 'stdout') => ({ event: 'output', to, cmd, bytes, lines: 1 })
+    const r = await run(metadataResult, ['usage'], { prepare: past([out('find', 1000), MIN], [out('find', 3000), 2 * MIN], [out('tree', 5000), MIN], [out('tree', 99999, 'file'), MIN], [out('meta', 7777), 30 * HOUR]) })
+    assert.match(r.out, /tree\s+1회\s+합계 5000B\s+최대 5000B\n\s+find\s+2회\s+합계 4000B\s+최대 3000B/)
+    assert.doesNotMatch(r.out, /meta\s+\d+회|99999/)
+    assert.match(r.out, /바이트 수이며 토큰 수가 아니다/)
   })
   test('만료된 세션의 404 재시도는 원장에 남지만 호출 수와 반복 집계에는 세지 않는다', async () => {
     const stale = (dir) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, 'session'), 'STALE\n') }
@@ -744,6 +795,20 @@ describe('호출 원장 — 읽기·예산 판정·집계', () => {
     const calls = Array.from({ length: 8 }, (_, i) => [0, 1].map((k) => ({ backend: 'mcp', kind: 'tools/call', name: 't', node: `n${i}`, t: now - 1000 - k }))).flat()
     assert.equal(repeatLines(calls, now).filter((l) => l.startsWith('  ')).length, 5)
     assert.match(repeatLines([], now).join('\n'), /tools\/call 0회 중 대상 노드가 있는 0회에서 같은 도구·노드를 다시 부른 것 0회/)
+  })
+  test('capLines: 한도 이하·0 은 그대로, 넘으면 앞에서 자르고 남은 줄 수를 센다', () => {
+    const text = ['a', 'b', 'c', 'd'].join('\n')
+    assert.deepEqual(capLines(text, 4), { text, more: 0 })
+    assert.deepEqual(capLines(text, 0), { text, more: 0 })
+    assert.deepEqual(capLines(text, 3), { text: 'a\nb\nc', more: 1 })
+    assert.deepEqual(capLines('', 3), { text: '', more: 0 })
+  })
+  test('출력 집계: stdout 만, 명령별 횟수·합계·최대, 합계 내림차순', () => {
+    const o = (cmd, bytes, ago, to = 'stdout') => ({ event: 'output', to, cmd, bytes, t: now - ago })
+    const text = outputLines([o('a', 10, 1000), o('a', 30, 2000), o('b', 100, 1000), o('b', 5, 1000, 'file'), o('c', 1, 25 * HOUR)], now).join('\n')
+    assert.match(text, /b\s+1회\s+합계 100B\s+최대 100B\n\s+a\s+2회\s+합계 40B\s+최대 30B/)
+    assert.doesNotMatch(text, /\bc\s+\d+회/)
+    assert.match(outputLines([], now).join('\n'), /\(기록 없음\)/)
   })
   test('집계: 기록이 없으면 그렇게 알린다', () => {
     assert.match(renderUsage([], now), /\(기록 없음\)/)

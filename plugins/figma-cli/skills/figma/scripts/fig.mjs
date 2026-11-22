@@ -105,6 +105,22 @@ export function repeatLines(calls, now = Date.now()) {
   ]
 }
 
+export function outputLines(calls, now = Date.now()) {
+  const byCommand = new Map()
+  for (const c of calls.filter((e) => e.event === 'output' && e.to === 'stdout' && e.t > now - DAY_MS)) {
+    const row = byCommand.get(c.cmd) ?? { n: 0, sum: 0, max: 0 }
+    row.n += 1; row.sum += c.bytes; row.max = Math.max(row.max, c.bytes)
+    byCommand.set(c.cmd, row)
+  }
+  const rows = [...byCommand].sort((a, b) => b[1].sum - a[1].sum)
+  return [
+    '',
+    '대화로 나간 출력(최근 24시간, stdout) — 명령별 횟수·합계·최대',
+    ...(rows.length ? rows.map(([cmd, r]) => `  ${String(cmd).padEnd(8)} ${String(r.n).padStart(4)}회  합계 ${r.sum}B  최대 ${r.max}B`) : ['  (기록 없음)']),
+    '  -o 로 파일에 쓴 출력은 세지 않는다. 바이트 수이며 토큰 수가 아니다.',
+  ]
+}
+
 export function renderUsage(calls, now = Date.now()) {
   const windows = [60 * 1000, 60 * 60 * 1000, DAY_MS]
   const rows = new Map()
@@ -129,6 +145,7 @@ export function renderUsage(calls, now = Date.now()) {
     `마지막 상한 통지 — ${limitLine('mcp')} | ${limitLine('rest')}`,
     `예산 — ${budgetLine('mcp')} | ${budgetLine('rest')}`,
     ...repeatLines(calls, now),
+    ...outputLines(calls, now),
     '',
     '예산에 세는 요청: MCP tools/call(세션 만료 404 제외), REST 전부. initialize·tools/list 는 기록만 한다.',
     '이 CLI 가 보낸 요청만 센다. 같은 계정의 다른 클라이언트 호출은 빠져 있어 서버가 센 양은 이보다 많을 수 있다.',
@@ -379,6 +396,14 @@ export function findNodes(nodes, pattern, { hidden = false, type = null, prop = 
 
 export const DEFAULT_FIND_LIMIT = 50
 
+export const DEFAULT_TREE_LINES = 200
+
+export function capLines(text, limit) {
+  const lines = text.split('\n')
+  if (!limit || lines.length <= limit) return { text, more: 0 }
+  return { text: lines.slice(0, limit).join('\n'), more: lines.length - limit }
+}
+
 export function limitHits(hits, limit) {
   if (!limit || hits.length <= limit) return { shown: hits, more: 0 }
   return { shown: hits.slice(0, limit), more: hits.length - limit }
@@ -550,11 +575,15 @@ async function indexedNodes(nodeId, opts) {
 // ── 출력 ─────────────────────────────────────────────────────────────────────
 
 function emit(text, out) {
+  const body = text.endsWith('\n') ? text : `${text}\n`
+  if (currentCommand !== 'usage') {
+    recordCall({ event: 'output', to: out ? 'file' : 'stdout', bytes: Buffer.byteLength(body), lines: body.split('\n').length - 1 })
+  }
   if (out) {
-    fs.writeFileSync(out, text.endsWith('\n') ? text : `${text}\n`)
+    fs.writeFileSync(out, body)
     process.stderr.write(`${out} (${Buffer.byteLength(text)} 바이트)\n`)
   } else {
-    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`)
+    process.stdout.write(body)
   }
 }
 
@@ -564,7 +593,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 
 찾기 — 문서 전체에서 노드를 찾는다
   find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지 출력 (기본 50건까지)
-  tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트)
+  tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트, 기본 200줄까지)
   index  [URL|파일키]   문서 전체를 받아 로컬에 저장한다. find·tree 에 --index 를 주면
                         서버에서 문서 전체를 다시 받지 않고 저장본으로 답한다.
                         파일 URL·키와 Figma 토큰(FIGMA_TOKEN 또는 ~/.config/fig/token)이 있으면
@@ -593,7 +622,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   --type T         이 타입의 노드만 (frame · text · symbol · instance …)
   --prop 이름=값   이름에 든 변형 속성이 일치하는 노드만 (예: Orientation=Portrait)
   --square N|A-B   너비와 높이가 같고 그 크기가 N 또는 A~B 인 노드만 (아이콘 찾기)
-  --limit N        stdout 출력 상한, 기본 50, 0 은 제한 없음 (-o 로 파일에 쓰면 전부)
+  --limit N        stdout 출력 상한(find 는 건수 기본 50, tree 는 줄 수 기본 200), 0 은 제한 없음 (-o 로 파일에 쓰면 전부)
   --index          fig index 로 저장한 문서로 답한다 (대상 생략 시에만)
   --hidden         숨김 노드도 포함 (기본은 제외)
   -d, --depth N    tree 깊이, 기본 2
@@ -629,7 +658,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 export function parseArgs(argv) {
   const opts = {
     json: false, raw: false, force: false, hidden: false, noCache: false, index: false, depth: 2, out: null, help: false,
-    timeoutMs: DEFAULT_TIMEOUT_MS, limit: DEFAULT_FIND_LIMIT, type: null, prop: null, square: null,
+    timeoutMs: DEFAULT_TIMEOUT_MS, limit: DEFAULT_FIND_LIMIT, limitGiven: false, type: null, prop: null, square: null,
   }
   const positional = []
   for (let i = 0; i < argv.length; i++) {
@@ -644,7 +673,7 @@ export function parseArgs(argv) {
     else if (a === '-d' || a === '--depth') opts.depth = Number(argv[++i])
     else if (a === '--timeout') opts.timeoutMs = Number(argv[++i]) * 1000
     else if (a === '--index') opts.index = true
-    else if (a === '--limit') opts.limit = Number(argv[++i])
+    else if (a === '--limit') { opts.limit = Number(argv[++i]); opts.limitGiven = true }
     else if (a === '--type') opts.type = argv[++i]
     else if (a === '--prop') opts.prop = argv[++i]
     else if (a === '--square') opts.square = parseSquare(argv[++i])
@@ -710,8 +739,12 @@ export async function main(argv) {
     }
     case 'tree': {
       const nodes = await metadataNodes(rest[0], opts)
-      emit(opts.json ? JSON.stringify(nodes.filter((n) => n.depth <= opts.depth && (opts.hidden || !n.hidden)), null, 2)
-        : renderTree(nodes, opts), opts.out)
+      const limit = opts.out ? 0 : opts.limitGiven ? opts.limit : DEFAULT_TREE_LINES
+      const { text, more } = opts.json
+        ? (({ shown, more }) => ({ text: JSON.stringify(shown, null, 2), more }))(limitHits(nodes.filter((n) => n.depth <= opts.depth && (opts.hidden || !n.hidden)), limit))
+        : capLines(renderTree(nodes, opts), limit)
+      emit(text, opts.out)
+      if (more) process.stderr.write(`fig: ${more}${opts.json ? '개' : '줄'} 더 있다 (--limit 0 으로 전부, -d 로 깊이 조절, -o 로 파일에 저장)\n`)
       return 0
     }
     case 'find': {
