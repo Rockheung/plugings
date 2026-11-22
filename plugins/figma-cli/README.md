@@ -65,7 +65,7 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
 도구다 — `fig call` 로만 닿게 두었다.
 
 호출 기록 — 보낸 요청을 센다
-fig usage                 이 CLI 가 보낸 요청의 집계와 마지막 상한 통지, 예산 설정
+fig usage                 이 CLI 가 보낸 요청의 집계, 같은 도구·노드의 반복 호출, 마지막 상한 통지, 예산 설정
 
 ## 설계
 
@@ -130,7 +130,10 @@ fig usage                 이 CLI 가 보낸 요청의 집계와 마지막 상�
   송신 지점이라 두 곳에서 한 줄씩 `${XDG_STATE_HOME:-~/.local/state}/fig/calls-<날짜>.jsonl` 에
   덧붙인다(시각·백엔드·종류·도구·상태·소요 시간·바이트·명령 이름, 응답 본문과 토큰은 없다).
   날짜별 파일이라 기록 비용은 호출당 일정하고 읽기는 최근 이틀 분량으로 끝난다.
-  `initialize`·`tools/list` 도 기록하지만 예산에는 `tools/call` 과 REST 만 센다.
+  `initialize`·`tools/list` 도 기록하지만 예산에는 `tools/call` 과 REST 만 센다. `tools/call` 에는
+  대상 노드 id(`node`, 대상을 생략해 선택 노드를 쓰면 `null`)가 같이 남고, `fig usage` 가 최근 24시간에
+  같은 도구·노드를 다시 부른 횟수를 센다. 응답을 노드 단위로 캐시할 가치를 가늠하는 값이며, 인자 중
+  `nodeId` 외의 값(`forceCode` 등)이 달라도 같은 호출로 센다.
 - **막는 것이 기본이고 `--force` 로만 보낸다.** 호출 직전에 원장을 읽어 두 가지를 본다. 설정한 예산
   (`FIG_BUDGET_MCP_DAY`: 최근 24시간, `FIG_BUDGET_REST_MIN`: 최근 1분)에 닿았는지, 서버가 상한을
   알린 뒤 보류 시간이 안 지났는지(MCP 1시간, REST 는 429 의 `Retry-After`). 걸리면 서버에 보내지

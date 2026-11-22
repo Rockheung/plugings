@@ -11,7 +11,7 @@ import path from 'node:path'
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
   splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
   limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS,
-  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, MCP_LIMIT_HOLD_MS }
+  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, repeatLines, MCP_LIMIT_HOLD_MS }
   from '../skills/figma/scripts/fig.mjs'
 
 process.env.XDG_STATE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-state-'))
@@ -630,6 +630,23 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     assert.equal(r.calls, 0)
     for (const word of ['usage', '--force', 'FIG_BUDGET_MCP_DAY', 'FIG_BUDGET_REST_MIN', 'calls-<날짜>.jsonl']) assert.ok(r.out.includes(word), word)
   })
+  test('도구 호출은 대상 노드 id 와 함께 원장에 남고, 대상이 없으면 null 이다', async () => {
+    const withTarget = await run(metadataResult, ['meta', '7327-61763'])
+    assert.equal(withTarget.ledger.find((c) => c.kind === 'tools/call').node, '7327:61763')
+    const selection = await run(metadataResult, ['meta'])
+    assert.equal(selection.ledger.find((c) => c.kind === 'tools/call').node, null)
+    const whole = await run(metadataResult, ['find', 'chevron'])
+    assert.equal(whole.ledger.find((c) => c.kind === 'tools/call').node, '0:0')
+    assert.equal(whole.ledger.find((c) => c.kind === 'initialize').node, undefined)
+  })
+  test('fig usage 는 같은 도구·노드의 반복 호출을 센다', async () => {
+    const hit = (name, node) => ({ backend: 'mcp', kind: 'tools/call', name, node, http: 200 })
+    const r = await run(metadataResult, ['usage'], { prepare: past([hit('get_design_context', '1:2'), 5 * MIN], [hit('get_design_context', '1:2'), 4 * MIN], [hit('get_design_context', '1:2'), 3 * MIN], [hit('get_design_context', '3:4'), 2 * MIN], [hit('get_metadata', null), MIN]) })
+    assert.equal(r.code, 0)
+    assert.match(r.out, /tools\/call 5회 중 대상 노드가 있는 4회에서 같은 도구·노드를 다시 부른 것 2회, 대상이 없는\(선택 노드\) 1회는 판정 제외/)
+    assert.match(r.out, /get_design_context 1:2  ×3/)
+    assert.doesNotMatch(r.out, /get_design_context 3:4  ×/)
+  })
   test('원장에 쓸 수 없어도 명령은 진행하고 사유를 알린다', async () => {
     const r = await run(metadataResult, ['find', 'chevron', '--limit', '0'], { env: { XDG_STATE_HOME: '/dev/null' } })
     assert.equal(r.code, 0)
@@ -696,6 +713,27 @@ describe('호출 원장 — 읽기·예산 판정·집계', () => {
     assert.match(text, /mcp get_metadata\s+1\s+2\s+3\n/)
     assert.match(text, /mcp initialize\s+1\s+1\s+1\n/)
     assert.match(text, /다른 클라이언트 호출은 빠져 있어/)
+  })
+  test('반복 호출: 대상이 있는 tools/call 만, 24시간 안에서, 같은 도구·노드끼리 센다', () => {
+    const hit = (name, node, ago, over = {}) => ({ backend: 'mcp', kind: 'tools/call', name, node, t: now - ago, ...over })
+    const calls = [
+      hit('a', '1:1', 1000), hit('a', '1:1', 2000), hit('a', '1:1', 3000),
+      hit('b', '1:1', 1000), hit('a', '2:2', 1000),
+      hit('a', '9:9', 25 * HOUR), hit('a', '9:9', 1000),
+      hit('a', null, 1000), hit('a', null, 2000),
+      hit('a', '1:1', 1000, { kind: 'initialize' }),
+      { event: 'limit', backend: 'mcp', name: 'a', node: '1:1', t: now - 1000 },
+      { backend: 'rest', kind: 'GET', name: 'files/meta', t: now - 1000 },
+    ]
+    const text = repeatLines(calls, now).join('\n')
+    assert.match(text, /tools\/call 8회 중 대상 노드가 있는 6회에서 같은 도구·노드를 다시 부른 것 2회, 대상이 없는\(선택 노드\) 2회는 판정 제외/)
+    assert.match(text, /a 1:1  ×3/)
+    assert.doesNotMatch(text, /a 9:9|b 1:1  ×|a 2:2  ×/)
+  })
+  test('반복 호출: 많으면 상위 5개만 보여 주고, 기록이 없으면 0회로 알린다', () => {
+    const calls = Array.from({ length: 8 }, (_, i) => [0, 1].map((k) => ({ backend: 'mcp', kind: 'tools/call', name: 't', node: `n${i}`, t: now - 1000 - k }))).flat()
+    assert.equal(repeatLines(calls, now).filter((l) => l.startsWith('  ')).length, 5)
+    assert.match(repeatLines([], now).join('\n'), /tools\/call 0회 중 대상 노드가 있는 0회에서 같은 도구·노드를 다시 부른 것 0회/)
   })
   test('집계: 기록이 없으면 그렇게 알린다', () => {
     assert.match(renderUsage([], now), /\(기록 없음\)/)
