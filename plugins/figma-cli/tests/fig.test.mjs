@@ -2,7 +2,7 @@
 //
 // 고정 입력은 실제 서버 응답에서 잘라 온 것이다(2026-09-09, [DM] Widget Studio).
 
-import { test, describe } from 'bun:test'
+import { test, describe, afterAll } from 'bun:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -11,8 +11,11 @@ import path from 'node:path'
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
   splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
   limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS,
-  parseFileKey, readToken, fetchFileMeta }
+  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, MCP_LIMIT_HOLD_MS }
   from '../skills/figma/scripts/fig.mjs'
+
+process.env.XDG_STATE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-state-'))
+afterAll(() => fs.rmSync(process.env.XDG_STATE_HOME, { recursive: true, force: true }))
 
 describe('parseNodeId — URL 을 그대로 붙여넣어도 받는다', () => {
   test('URL 의 node-id 는 하이픈이라 콜론으로 정규화한다', () => {
@@ -396,6 +399,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
           FIG_MCP_URL: `http://127.0.0.1:${server.port}/mcp`,
           XDG_CACHE_HOME: cache,
           XDG_CONFIG_HOME: cache,
+          XDG_STATE_HOME: cache,
           FIGMA_TOKEN: '',
           ...(restServer ? { FIG_REST_URL: `http://127.0.0.1:${restServer.port}` } : {}),
           ...env,
@@ -406,7 +410,8 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
       const [out, err, code] = await Promise.all([new Response(proc.stdout).arrayBuffer(), new Response(proc.stderr).text(), proc.exited])
       const metaPath = path.join(cache, 'fig', 'index.json')
       const indexMeta = fs.existsSync(metaPath) ? JSON.parse(fs.readFileSync(metaPath, 'utf8')) : null
-      return { bytes: out.byteLength, out: Buffer.from(out).toString('utf8'), err, code, calls, restCalls, restToken, indexMeta }
+      const ledger = readCalls(Date.now() - 48 * 3600000, path.join(cache, 'fig'), Date.now() + 1000)
+      return { bytes: out.byteLength, out: Buffer.from(out).toString('utf8'), err, code, calls, restCalls, restToken, indexMeta, ledger }
     } finally {
       server.stop(true)
       restServer?.stop(true)
@@ -525,6 +530,175 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1'), prepare: indexBuiltAt(Date.now() - 60000) })
     assert.equal(r.code, 0)
     assert.equal(r.restCalls, 0)
+  })
+
+  const MIN = 60000
+  const HOUR = 60 * MIN
+  const past = (...items) => (dir) => items.forEach(([entry, ago]) => recordCall(entry, dir, Date.now() - ago))
+  const mcpCall = { backend: 'mcp', kind: 'tools/call', name: 'get_metadata', http: 200 }
+  const mcpLimit = { event: 'limit', backend: 'mcp', name: 'get_metadata' }
+  const restLimit = (retryAfterSec) => ({ event: 'limit', backend: 'rest', name: 'files/meta', retryAfterSec })
+
+  test('MCP 요청은 전부 원장에 남는다: 초기화와 도구 호출, 명령 이름, 상태와 크기', async () => {
+    const r = await run(metadataResult, ['find', 'chevron', '--limit', '0'])
+    assert.equal(r.code, 0)
+    const kinds = r.ledger.map((c) => c.kind)
+    assert.deepEqual(kinds, ['initialize', 'notifications/initialized', 'tools/call'])
+    const call = r.ledger.at(-1)
+    assert.equal(call.name, 'get_metadata')
+    assert.equal(call.cmd, 'find')
+    assert.equal(call.http, 200)
+    assert.ok(call.bytes > 0 && call.ms >= 0)
+    assert.equal(r.ledger.length, 1 + r.calls + 1)
+  })
+  test('서버가 상한을 알리면 원장에 상한 기록이 남는다', async () => {
+    const r = await run({ isError: true, content: [{ type: 'text', text: 'Rate limit exceeded, please try again tomorrow' }] }, ['vars', '1:2'])
+    assert.equal(r.code, 1)
+    assert.deepEqual(r.ledger.filter((c) => c.event).map(({ event, backend, name }) => ({ event, backend, name })), [{ event: 'limit', backend: 'mcp', name: 'get_variable_defs' }])
+  })
+  test('설정한 예산에 닿으면 서버에 보내지 않고 --force 를 안내한다', async () => {
+    const r = await run(metadataResult, ['find', 'chevron'], { env: { FIG_BUDGET_MCP_DAY: '3' }, prepare: past([mcpCall, MIN], [mcpCall, MIN], [mcpCall, MIN]) })
+    assert.equal(r.code, 1)
+    assert.equal(r.calls, 0)
+    assert.equal(r.out, '')
+    assert.match(r.err, /호출 예산 때문에 MCP 호출을 보내지 않았다/)
+    assert.match(r.err, /3회를 이 CLI 가 보냈고 설정한 예산 3회에 도달/)
+    assert.match(r.err, /--force/)
+  })
+  test('--force 를 주면 같은 상황에서 경고하고 보낸다', async () => {
+    const r = await run(metadataResult, ['find', 'chevron', '--force', '--limit', '0'], { env: { FIG_BUDGET_MCP_DAY: '3' }, prepare: past([mcpCall, MIN], [mcpCall, MIN], [mcpCall, MIN]) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 1)
+    assert.match(r.err, /--force 라서 보낸다/)
+  })
+  test('예산 미만이면 막지 않는다', async () => {
+    const r = await run(metadataResult, ['find', 'chevron', '--limit', '0'], { env: { FIG_BUDGET_MCP_DAY: '4' }, prepare: past([mcpCall, MIN], [mcpCall, MIN], [mcpCall, MIN]) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 1)
+  })
+  test('서버가 상한을 알린 직후에는 같은 호출을 서버에 보내지 않는다', async () => {
+    const r = await run(metadataResult, ['find', 'chevron'], { prepare: past([mcpLimit, 10 * MIN]) })
+    assert.equal(r.code, 1)
+    assert.equal(r.calls, 0)
+    assert.match(r.err, /서버가 MCP 호출 상한을 알렸다/)
+  })
+  test('보류 시간이 지나면 다시 보낸다', async () => {
+    const r = await run(metadataResult, ['find', 'chevron', '--limit', '0'], { prepare: past([mcpLimit, MCP_LIMIT_HOLD_MS + MIN]) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 1)
+  })
+  test('fig tools 는 예산 검사 대상이 아니다', async () => {
+    const r = await run({ tools: [] }, ['tools'], { env: { FIG_BUDGET_MCP_DAY: '1' }, prepare: past([mcpCall, MIN]) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 1)
+  })
+  test('REST 429 는 Retry-After 와 함께 원장에 남고, 그 시간 안에는 REST 를 보내지 않는다', async () => {
+    const first = await run(metadataResult, ['index', FILE_URL], { env: { FIGMA_TOKEN: TOKEN }, rest: () => new Response('{}', { status: 429, headers: { 'retry-after': '30' } }) })
+    assert.equal(first.code, 1)
+    assert.equal(first.calls, 0)
+    assert.deepEqual(first.ledger.filter((c) => c.event).map((c) => [c.backend, c.retryAfterSec]), [['rest', 30]])
+    const blocked = await run(metadataResult, ['index', FILE_URL], { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1'), prepare: past([restLimit(30), 5000]) })
+    assert.equal(blocked.code, 1)
+    assert.equal(blocked.restCalls, 0)
+    assert.equal(blocked.calls, 0)
+    assert.match(blocked.err, /호출 예산 때문에 REST 호출을 보내지 않았다/)
+  })
+  test('REST 가 막혀 있어도 --index 조회는 5분 규칙으로 답한다', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1'), prepare: (dir) => { indexBuiltAt(Date.now() - 60000, stamp('T1'))(dir); past([restLimit(60), 5000])(dir) } })
+    assert.equal(r.code, 0)
+    assert.equal(r.restCalls, 0)
+    assert.equal(r.calls, 0)
+    assert.match(r.err, /파일 변경 확인에 실패해 5분 규칙으로 답한다 — 호출 예산 때문에 REST/)
+  })
+  test('REST 요청도 원장에 남는다(티어·상태·명령)', async () => {
+    const r = await run(probeNode('square-hidden'), findArgs, { env: { FIGMA_TOKEN: TOKEN }, rest: restMeta('T1'), prepare: indexBuiltAt(stale(), stamp('T1')) })
+    const rest = r.ledger.filter((c) => c.backend === 'rest')
+    assert.equal(rest.length, 1)
+    assert.deepEqual([rest[0].kind, rest[0].name, rest[0].tier, rest[0].http, rest[0].cmd], ['GET', 'files/meta', 3, 200, 'find'])
+  })
+  test('fig usage 는 서버를 부르지 않고 집계를 보여 준다', async () => {
+    const r = await run(metadataResult, ['usage'], { prepare: past([mcpCall, 30000], [mcpCall, 10 * MIN], [mcpCall, 3 * HOUR], [mcpLimit, 2 * HOUR]) })
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 0)
+    assert.match(r.out, /mcp get_metadata\s+1\s+2\s+3\n/)
+    assert.match(r.out, /mcp: 2시간 전 서버가 상한을 알렸다/)
+    assert.match(r.out, /이 CLI 가 보낸 요청만 센다/)
+  })
+  test('--help 는 호출 기록 명령·--force·예산 환경변수를 안내하고 종료 코드 0 이다', async () => {
+    const r = await run(metadataResult, ['--help'])
+    assert.equal(r.code, 0)
+    assert.equal(r.calls, 0)
+    for (const word of ['usage', '--force', 'FIG_BUDGET_MCP_DAY', 'FIG_BUDGET_REST_MIN', 'calls-<날짜>.jsonl']) assert.ok(r.out.includes(word), word)
+  })
+  test('원장에 쓸 수 없어도 명령은 진행하고 사유를 알린다', async () => {
+    const r = await run(metadataResult, ['find', 'chevron', '--limit', '0'], { env: { XDG_STATE_HOME: '/dev/null' } })
+    assert.equal(r.code, 0)
+    assert.match(r.err, /호출 원장에 기록하지 못했다/)
+  })
+})
+
+describe('호출 원장 — 읽기·예산 판정·집계', () => {
+  const withDir = (fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-ledger-'))
+    try { return fn(dir) } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+  const now = new Date(2026, 10, 22, 12, 0, 0).getTime()
+  const HOUR = 3600000
+  const call = (over = {}) => ({ backend: 'mcp', kind: 'tools/call', name: 'get_metadata', ...over })
+
+  test('날짜 파일을 넘나들어 읽고, 윈도 밖과 깨진 줄은 거른다', () => withDir((dir) => {
+    recordCall(call({ n: 1 }), dir, now - 30 * HOUR)
+    recordCall(call({ n: 2 }), dir, now - 13 * HOUR)
+    recordCall(call({ n: 3 }), dir, now - 1000)
+    fs.appendFileSync(path.join(dir, fs.readdirSync(dir).sort().at(-1)), 'not json\n\n')
+    assert.deepEqual(readCalls(now - 24 * HOUR, dir, now).map((c) => c.n), [2, 3])
+    assert.deepEqual(readCalls(now - 48 * HOUR, dir, now).map((c) => c.n), [1, 2, 3])
+    assert.equal(fs.readdirSync(dir).length, 2)
+  }))
+  test('날짜 파일이 없으면 빈 배열이다', () => withDir((dir) => {
+    assert.deepEqual(readCalls(now - 24 * HOUR, dir, now), [])
+  }))
+
+  test('예산: 설정이 없으면 막지 않는다', () => {
+    assert.deepEqual(checkBudget('mcp', Array.from({ length: 500 }, () => ({ ...call(), t: now - 1000 })), {}, now), [])
+  })
+  test('예산: tools/call 만 센다(initialize·tools/list·상한 기록은 세지 않는다)', () => {
+    const calls = [call({ t: now - 1000 }), call({ kind: 'initialize', name: null, t: now - 1000 }), call({ kind: 'tools/list', name: null, t: now - 1000 }), { event: 'limit', backend: 'rest', t: now - 1000 }]
+    assert.deepEqual(checkBudget('mcp', calls, { FIG_BUDGET_MCP_DAY: '2' }, now), [])
+    assert.equal(checkBudget('mcp', calls, { FIG_BUDGET_MCP_DAY: '1' }, now).length, 1)
+  })
+  test('예산: 윈도 밖 호출은 세지 않고 백엔드끼리 섞이지 않는다', () => {
+    const calls = [call({ t: now - 25 * HOUR }), { backend: 'rest', kind: 'GET', name: 'files/meta', t: now - 1000 }]
+    assert.deepEqual(checkBudget('mcp', calls, { FIG_BUDGET_MCP_DAY: '1' }, now), [])
+    assert.equal(checkBudget('rest', calls, { FIG_BUDGET_REST_MIN: '1' }, now).length, 1)
+    assert.deepEqual(checkBudget('rest', [{ backend: 'rest', kind: 'GET', name: 'files/meta', t: now - 61000 }], { FIG_BUDGET_REST_MIN: '1' }, now), [])
+  })
+  test('예산: 잘못된 값은 오류로 알린다', () => {
+    for (const bad of ['0', '-1', 'abc', '1.5']) assert.throws(() => checkBudget('mcp', [], { FIG_BUDGET_MCP_DAY: bad }, now), /1 이상의 정수/)
+  })
+  test('상한 기록: MCP 는 보류 시간 안에서만, REST 는 Retry-After 안에서만 막는다', () => {
+    const mcp = (ago) => [{ event: 'limit', backend: 'mcp', t: now - ago }]
+    assert.equal(checkBudget('mcp', mcp(MCP_LIMIT_HOLD_MS - 1000), {}, now).length, 1)
+    assert.equal(checkBudget('mcp', mcp(MCP_LIMIT_HOLD_MS + 1000), {}, now).length, 0)
+    const rest = (ago, retryAfterSec) => [{ event: 'limit', backend: 'rest', retryAfterSec, t: now - ago }]
+    assert.equal(checkBudget('rest', rest(10000, 30), {}, now).length, 1)
+    assert.equal(checkBudget('rest', rest(31000, 30), {}, now).length, 0)
+    assert.equal(checkBudget('rest', rest(59000, null), {}, now).length, 1)
+    assert.equal(checkBudget('rest', rest(61000, null), {}, now).length, 0)
+  })
+  test('상한 기록은 다른 백엔드를 막지 않는다', () => {
+    assert.deepEqual(checkBudget('rest', [{ event: 'limit', backend: 'mcp', t: now - 1000 }], {}, now), [])
+  })
+
+  test('집계: 1분·1시간·24시간 윈도로 세고 경고 문구를 붙인다', () => {
+    const calls = [call({ t: now - 30000 }), call({ t: now - 10 * 60000 }), call({ t: now - 3 * HOUR }), call({ kind: 'initialize', name: null, t: now - 1000 })]
+    const text = renderUsage(calls, now)
+    assert.match(text, /mcp get_metadata\s+1\s+2\s+3\n/)
+    assert.match(text, /mcp initialize\s+1\s+1\s+1\n/)
+    assert.match(text, /다른 클라이언트 호출은 빠져 있어/)
+  })
+  test('집계: 기록이 없으면 그렇게 알린다', () => {
+    assert.match(renderUsage([], now), /\(기록 없음\)/)
   })
 })
 

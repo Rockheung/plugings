@@ -64,6 +64,9 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
 `add_code_connect_map` 과 `send_code_connect_mappings` 는 Figma 문서를 바꾸는 쓰기
 도구다 — `fig call` 로만 닿게 두었다.
 
+호출 기록 — 보낸 요청을 센다
+fig usage                 이 CLI 가 보낸 요청의 집계와 마지막 상한 통지, 예산 설정
+
 ## 설계
 
 - **세션 캐시.** 호출마다 `initialize` → `notifications/initialized` → `tools/call` 로
@@ -123,6 +126,19 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
   파이프로 아직 못 나간 출력을 버려서, 128KB 를 넘는 출력이 `| grep`·`| wc` 에서 잘린다
   (실측: bun 131072B, node 65536B 에서 멈추고 파일 리다이렉트는 전부 나왔다). 이벤트 루프가
   비도록 두면 3MB 도 전부 나오고 종료도 늦어지지 않는다(bun 약 20ms, node 약 60ms).
+- **서버로 나가는 요청은 전부 원장에 남는다.** MCP 는 `post`, REST 는 `fetchFileMeta` 가 유일한
+  송신 지점이라 두 곳에서 한 줄씩 `${XDG_STATE_HOME:-~/.local/state}/fig/calls-<날짜>.jsonl` 에
+  덧붙인다(시각·백엔드·종류·도구·상태·소요 시간·바이트·명령 이름, 응답 본문과 토큰은 없다).
+  날짜별 파일이라 기록 비용은 호출당 일정하고 읽기는 최근 이틀 분량으로 끝난다.
+  `initialize`·`tools/list` 도 기록하지만 예산에는 `tools/call` 과 REST 만 센다.
+- **막는 것이 기본이고 `--force` 로만 보낸다.** 호출 직전에 원장을 읽어 두 가지를 본다. 설정한 예산
+  (`FIG_BUDGET_MCP_DAY`: 최근 24시간, `FIG_BUDGET_REST_MIN`: 최근 1분)에 닿았는지, 서버가 상한을
+  알린 뒤 보류 시간이 안 지났는지(MCP 1시간, REST 는 429 의 `Retry-After`). 걸리면 서버에 보내지
+  않고 사유와 `--force` 를 안내해 종료 코드 1 로 끝나며, `--force` 를 주면 경고만 하고 보낸다.
+  REST 확인이 막히면 `--index` 조회는 5분 규칙으로 돌아간다. 예산의 기본값은 없다 — 상한 수치는
+  이 환경에서 검증하지 못했다. MCP 보류 1시간은 서버가 풀리는 시각을 알려 주지 않아 정한 관례값이다.
+- **집계는 하한값이다.** 이 CLI 가 보낸 요청만 센다. 같은 계정의 다른 클라이언트(앱 자체, 다른 세션)의
+  호출은 보이지 않고, 합산 여부도 문서에 없다. 하루는 최근 24시간으로 센다.
 - **호출 상한 오류는 한국어로 안내한다.** 서버가 읽기 도구에 `Rate limit exceeded` 를 내면
   막히는 명령과 공식 문서 주소를 알리고 서버 원문을 괄호로 함께 낸다. 상한 수치는 문서가
   바뀔 수 있어 코드에 적지 않는다.

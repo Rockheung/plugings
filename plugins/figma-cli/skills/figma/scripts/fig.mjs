@@ -15,6 +15,109 @@ export const ENDPOINT = process.env.FIG_MCP_URL || 'http://127.0.0.1:3845/mcp'
 const CACHE_DIR = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'fig')
 const CACHE_FILE = path.join(CACHE_DIR, 'session')
 const CONFIG_DIR = path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'fig')
+const stateDir = () => path.join(process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'), 'fig')
+
+// ── 호출 원장 ────────────────────────────────────────────────────────────────
+
+const DAY_MS = 24 * 60 * 60 * 1000
+export const MCP_LIMIT_HOLD_MS = 60 * 60 * 1000
+const BUDGETS = {
+  mcp: { env: 'FIG_BUDGET_MCP_DAY', windowMs: DAY_MS, label: 'MCP 읽기 호출(최근 24시간)', name: 'MCP' },
+  rest: { env: 'FIG_BUDGET_REST_MIN', windowMs: 60 * 1000, label: 'REST 호출(최근 1분)', name: 'REST' },
+}
+let currentCommand = null
+
+const localDay = (ms) => new Date(ms).toLocaleDateString('sv')
+
+export function recordCall(entry, dir = stateDir(), now = Date.now()) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(path.join(dir, `calls-${localDay(now)}.jsonl`), `${JSON.stringify({ t: now, cmd: currentCommand, ...entry })}\n`)
+  } catch (err) {
+    process.stderr.write(`fig: 호출 원장에 기록하지 못했다 — ${err.message}\n`)
+  }
+}
+
+export function readCalls(sinceMs, dir = stateDir(), now = Date.now()) {
+  const days = new Set([localDay(now)])
+  for (let t = sinceMs; t < now; t += 6 * 60 * 60 * 1000) days.add(localDay(t))
+  const calls = []
+  for (const day of days) {
+    let text
+    try { text = fs.readFileSync(path.join(dir, `calls-${day}.jsonl`), 'utf8') } catch { continue }
+    for (const line of text.split('\n')) {
+      try {
+        const entry = JSON.parse(line)
+        if (entry.t >= sinceMs && entry.t <= now) calls.push(entry)
+      } catch {}
+    }
+  }
+  return calls.sort((a, b) => a.t - b.t)
+}
+
+const isRequest = (c) => !c.event
+const isBudgeted = (c) => isRequest(c) && (c.backend === 'rest' || c.kind === 'tools/call')
+
+export function checkBudget(backend, calls, env = process.env, now = Date.now()) {
+  const budget = BUDGETS[backend]
+  const reasons = []
+  const raw = env[budget.env]
+  if (raw !== undefined && raw !== '') {
+    const limit = Number(raw)
+    if (!Number.isInteger(limit) || limit <= 0) throw new Error(`${budget.env} 에는 1 이상의 정수를 준다: ${raw}`)
+    const used = calls.filter((c) => c.backend === backend && isBudgeted(c) && c.t > now - budget.windowMs).length
+    if (used >= limit) reasons.push(`${budget.label} ${used}회를 이 CLI 가 보냈고 설정한 예산 ${limit}회에 도달했다 (${budget.env})`)
+  }
+  const hit = calls.filter((c) => c.backend === backend && c.event === 'limit').at(-1)
+  if (hit) {
+    const holdMs = backend === 'rest' ? (hit.retryAfterSec ?? 60) * 1000 : MCP_LIMIT_HOLD_MS
+    if (now < hit.t + holdMs) {
+      const hold = backend === 'rest' ? `Retry-After ${hit.retryAfterSec ?? 60}초` : `${MCP_LIMIT_HOLD_MS / 60000}분 동안 보류`
+      reasons.push(`${agoText(now - hit.t)} 서버가 ${budget.name} 호출 상한을 알렸다 (${hold}, 남은 ${Math.ceil((hit.t + holdMs - now) / 1000)}초)`)
+    }
+  }
+  return reasons
+}
+
+function guard(backend, opts) {
+  const now = Date.now()
+  const reasons = checkBudget(backend, readCalls(now - DAY_MS, stateDir(), now), process.env, now)
+  if (!reasons.length) return
+  const lines = reasons.map((r) => `  - ${r}`).join('\n')
+  if (!opts?.force) {
+    throw new Error(`호출 예산 때문에 ${BUDGETS[backend].name} 호출을 보내지 않았다.\n${lines}\n  그래도 보내려면 --force 를 준다. 집계는 fig usage.`)
+  }
+  process.stderr.write(`fig: 예산 경고가 있지만 --force 라서 보낸다\n${lines}\n`)
+}
+
+export function renderUsage(calls, now = Date.now()) {
+  const windows = [60 * 1000, 60 * 60 * 1000, DAY_MS]
+  const rows = new Map()
+  for (const c of calls.filter(isRequest)) {
+    const key = `${c.backend} ${c.backend === 'mcp' && c.kind !== 'tools/call' ? c.kind : c.name}`
+    const row = rows.get(key) ?? [0, 0, 0]
+    windows.forEach((w, i) => { if (c.t > now - w) row[i] += 1 })
+    rows.set(key, row)
+  }
+  const width = Math.max(8, ...[...rows.keys()].map((k) => k.length))
+  const table = [...rows].sort(([a], [b]) => (a < b ? -1 : 1))
+    .map(([k, r]) => `${k.padEnd(width)}  ${r.map((n) => String(n).padStart(6)).join('')}`)
+  const limitLine = (backend) => {
+    const hit = calls.filter((c) => c.backend === backend && c.event === 'limit').at(-1)
+    return `${backend}: ${hit ? `${agoText(now - hit.t)} 서버가 상한을 알렸다` : '없음'}`
+  }
+  const budgetLine = (backend) => `${BUDGETS[backend].env}=${process.env[BUDGETS[backend].env] || '(설정 없음)'}`
+  return [
+    `${'호출(이 CLI 가 보낸 요청)'.padEnd(width)}    1분  1시간 24시간`,
+    ...(table.length ? table : ['(기록 없음)']),
+    '',
+    `마지막 상한 통지 — ${limitLine('mcp')} | ${limitLine('rest')}`,
+    `예산 — ${budgetLine('mcp')} | ${budgetLine('rest')}`,
+    '예산에 세는 요청: MCP tools/call, REST 전부. initialize·tools/list 는 기록만 한다.',
+    '이 CLI 가 보낸 요청만 센다. 같은 계정의 다른 클라이언트 호출은 빠져 있어 서버가 센 양은 이보다 많을 수 있다.',
+    '하루 기준은 최근 24시간이다. 서버가 하루를 언제 새로 시작하는지는 알 수 없다.',
+  ].join('\n')
+}
 
 // ── 인자 파싱 ────────────────────────────────────────────────────────────────
 
@@ -63,6 +166,8 @@ function friendlyConnError(err) {
 }
 
 async function post(sid, body, timeoutMs) {
+  const started = Date.now()
+  const entry = { backend: 'mcp', kind: body.method, name: body.params?.name ?? null }
   try {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
@@ -70,11 +175,13 @@ async function post(sid, body, timeoutMs) {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(timeoutMs),
     })
-    return { status: res.status, sid: res.headers.get('mcp-session-id'), text: await res.text() }
+    const text = await res.text()
+    recordCall({ ...entry, http: res.status, ms: Date.now() - started, bytes: Buffer.byteLength(text) })
+    return { status: res.status, sid: res.headers.get('mcp-session-id'), text }
   } catch (err) {
-    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-      throw timeoutError(body.params?.name || body.method, timeoutMs)
-    }
+    const timedOut = err?.name === 'TimeoutError' || err?.name === 'AbortError'
+    recordCall({ ...entry, http: null, ms: Date.now() - started, error: timedOut ? 'timeout' : 'connect' })
+    if (timedOut) throw timeoutError(body.params?.name || body.method, timeoutMs)
     throw friendlyConnError(err)
   }
 }
@@ -135,20 +242,26 @@ export function describeServerError(message, code) {
       `  (서버 응답: ${original})`)
   }
   if (/rate limit exceeded/i.test(message)) {
-    return new Error('Figma MCP 읽기 호출 상한에 걸렸다 — 풀릴 때까지 meta·ctx·vars·shot·find·tree 가 막힌다(fig tools 는 상한을 받지 않았다).\n' +
+    return Object.assign(new Error('Figma MCP 읽기 호출 상한에 걸렸다 — 풀릴 때까지 meta·ctx·vars·shot·find·tree 가 막힌다(fig tools 는 상한을 받지 않았다).\n' +
       `  같은 호출을 되풀이하지 않는다. 시트·플랜별 상한과 면제 도구는 ${RATE_LIMIT_DOC} 에 있다.\n` +
-      `  (서버 응답: ${original})`)
+      `  (서버 응답: ${original})`), { rateLimited: true })
   }
   return new Error(original)
 }
 
 export async function callTool(name, args, opts) {
-  const result = await rpc('tools/call', { name, arguments: args }, opts)
-  if (result.isError) {
-    const msg = (result.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n')
-    throw describeServerError(msg || `${name} 호출이 실패했다`)
+  guard('mcp', opts)
+  try {
+    const result = await rpc('tools/call', { name, arguments: args }, opts)
+    if (result.isError) {
+      const msg = (result.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('\n')
+      throw describeServerError(msg || `${name} 호출이 실패했다`)
+    }
+    return result
+  } catch (err) {
+    if (err.rateLimited) recordCall({ event: 'limit', backend: 'mcp', name })
+    throw err
   }
-  return result
 }
 
 export const textOf = (result) =>
@@ -305,18 +418,30 @@ function restStatusError(res) {
 }
 
 export async function fetchFileMeta(fileKey, token, timeoutMs) {
+  const started = Date.now()
+  const record = (extra) => recordCall({ backend: 'rest', kind: 'GET', name: 'files/meta', tier: 3, ms: Date.now() - started, ...extra })
   try {
     const res = await fetch(`${restUrl()}/v1/files/${fileKey}/meta`, {
       headers: { 'X-Figma-Token': token },
       signal: AbortSignal.timeout(timeoutMs),
     })
+    record({ http: res.status })
+    if (res.status === 429) {
+      recordCall({ event: 'limit', backend: 'rest', name: 'files/meta', retryAfterSec: Number(res.headers.get('retry-after')) || null })
+    }
     if (!res.ok) throw restStatusError(res)
     const { file } = await res.json()
     if (!file?.last_touched_at) throw new Error('응답에 last_touched_at 이 없다')
     return { lastTouchedAt: file.last_touched_at, name: file.name ?? null }
   } catch (err) {
-    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') throw new Error(`${timeoutMs / 1000}초 안에 응답이 오지 않았다`)
-    if (err instanceof TypeError) throw new Error(`연결하지 못했다 (${err?.cause?.code || err.name})`)
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      record({ http: null, error: 'timeout' })
+      throw new Error(`${timeoutMs / 1000}초 안에 응답이 오지 않았다`)
+    }
+    if (err instanceof TypeError) {
+      record({ http: null, error: 'connect' })
+      throw new Error(`연결하지 못했다 (${err?.cause?.code || err.name})`)
+    }
     throw err
   }
 }
@@ -365,6 +490,7 @@ export const isFreshIndex = (builtAt, now = Date.now()) => now >= builtAt && now
 async function fileStamp(key, opts) {
   const token = readToken()
   if (!token) throw new Error('파일 키를 받았지만 토큰이 없다 — FIGMA_TOKEN 또는 ~/.config/fig/token 에 Figma 개인 액세스 토큰을 둔다')
+  guard('rest', opts)
   const { lastTouchedAt } = await fetchFileMeta(key, token, opts.timeoutMs)
   return { key, lastTouchedAt }
 }
@@ -377,6 +503,7 @@ async function restFreshness(meta, opts) {
     return null
   }
   try {
+    guard('rest', opts)
     const live = await fetchFileMeta(meta.file.key, token, opts.timeoutMs)
     return live.lastTouchedAt === meta.file.lastTouchedAt ? 'same' : 'changed'
   } catch (err) {
@@ -433,6 +560,9 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   vars  [대상]          변수 정의. get_variable_defs
   shot  [대상]          PNG 스크린샷. get_screenshot
 
+호출 기록
+  usage                 이 CLI 가 보낸 요청의 집계(1분·1시간·24시간), 마지막 상한 통지, 예산 설정
+
 저수준
   tools                 서버가 제공하는 도구 목록과 인자
   call  <도구> [JSON]   도구를 이름으로 직접 호출 (위에 없는 도구용)
@@ -456,6 +586,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   --raw            서버 응답(JSON-RPC result)을 그대로 낸다 (서버가 붙인 안내 문구도 포함)
   --timeout SEC    응답 대기 상한, 기본 15초
   --no-cache       캐시된 세션을 쓰지 않고 새로 initialize 한다
+  --force          예산·상한 기록 때문에 막힌 호출을 경고하고 그대로 보낸다
   -h, --help       이 도움말
 
 예시
@@ -469,14 +600,17 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   fig call get_figjam '{"nodeId":"1:2"}'
 
 환경변수
-  FIG_MCP_URL   MCP 엔드포인트, 기본 http://127.0.0.1:3845/mcp
+  FIG_MCP_URL           MCP 엔드포인트, 기본 http://127.0.0.1:3845/mcp
+  FIG_BUDGET_MCP_DAY    MCP 읽기 호출(tools/call)의 최근 24시간 예산. 닿으면 --force 없이는 보내지 않는다
+  FIG_BUDGET_REST_MIN   REST 호출의 최근 1분 예산. 같은 방식
+  호출 원장: $XDG_STATE_HOME/fig/calls-<날짜>.jsonl (기본 ~/.local/state)
 `
 
 // ── main ─────────────────────────────────────────────────────────────────────
 
 export function parseArgs(argv) {
   const opts = {
-    json: false, raw: false, hidden: false, noCache: false, index: false, depth: 2, out: null, help: false,
+    json: false, raw: false, force: false, hidden: false, noCache: false, index: false, depth: 2, out: null, help: false,
     timeoutMs: DEFAULT_TIMEOUT_MS, limit: DEFAULT_FIND_LIMIT, type: null, prop: null, square: null,
   }
   const positional = []
@@ -486,6 +620,7 @@ export function parseArgs(argv) {
     else if (a === '--json') opts.json = true
     else if (a === '--raw') opts.raw = true
     else if (a === '--hidden') opts.hidden = true
+    else if (a === '--force') opts.force = true
     else if (a === '--no-cache') opts.noCache = true
     else if (a === '-o' || a === '--out') opts.out = argv[++i]
     else if (a === '-d' || a === '--depth') opts.depth = Number(argv[++i])
@@ -516,6 +651,7 @@ async function metadataNodes(target, opts) {
 export async function main(argv) {
   const { opts, positional } = parseArgs(argv)
   const [cmd, ...rest] = positional
+  currentCommand = cmd ?? null
   // --help 는 성공, 인자 없이 부른 것은 실패다.
   if (opts.help || !cmd) { process.stdout.write(HELP); return opts.help ? 0 : 1 }
 
@@ -575,6 +711,11 @@ export async function main(argv) {
       const xml = splitServerNotes(await callTool('get_metadata', { nodeId: '0:0' }, opts)).text
       const meta = writeIndex(xml, parseMetadata(xml), CACHE_DIR, Date.now(), file)
       process.stderr.write(`fig: 색인을 만들었다 — ${meta.count}노드, 캔버스 ${meta.canvases.length}개, ${((Date.now() - started) / 1000).toFixed(1)}초${file ? `, 파일 ${file.key} 의 마지막 편집 기록 저장` : ''} (${CACHE_DIR})\n`)
+      return 0
+    }
+    case 'usage': {
+      const now = Date.now()
+      emit(renderUsage(readCalls(now - DAY_MS, stateDir(), now), now), opts.out)
       return 0
     }
     case 'tools': {
