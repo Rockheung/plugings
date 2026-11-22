@@ -76,8 +76,8 @@
 
 ### 5. 큰 파일
 
-- 전체 응답 크기는 측정 전이다. MCP 의 같은 문서 메타데이터는 2MB(16,790노드)였고, REST 는 노드마다 속성이 많아 더 클 것으로 예상하지만 확인하지 않았다.
-- 문서가 제공하는 분할 수단은 `depth=2` 로 페이지 목록을 얻은 뒤 `ids` 로 페이지별 요청을 보내는 것이다. 분할하면 Tier 1 호출이 페이지 수만큼 늘어난다. 실측 결과로 전체 1회와 분할 중 하나를 정한다.
+- 전체 `GET /v1/files/:key` 는 인덱싱 수단이 될 수 없다. `[DM] Widget Studio` 는 응답이 301MB(213,986노드)이고 93초가 걸렸다("실측 결과" 절). 기본 대기 상한 15초의 6배이고 JSON 한 덩어리가 메모리에 올라간다.
+- 문서가 제공하는 분할 수단은 `depth` 와 `ids` 다. `depth=2` 는 177KB·4.6초였다. 색인에 필요한 깊이를 정해 페이지별(`ids`)로 요청하는 방식으로 가고, 깊이별 응답 크기를 실측해 정한다. 분할하면 Tier 1 호출이 페이지 수만큼 늘어난다.
 
 ### 6. 명령 표면
 
@@ -110,6 +110,36 @@
 - 1번에서 200 이고 `version` 을 얻는다. 403 이면 토큰 문제로 중단한다.
 - 3번의 REST 노드 중 FRAME·TEXT·INSTANCE·COMPONENT 의 id·이름이 MCP 색인과 일치하는 비율과 불일치 사례를 목록으로 남긴다.
 - 4번에서 편집 전후 `version` 이 달라진다. 같으면 신선도 확인에 `version` 을 쓰지 않는다.
+
+## 실측 결과 (2026-11-22, `[DM] Widget Studio`)
+
+호출 4회(401 응답 1회 포함, 이후 새 토큰으로 3회). 응답 헤더에 호출 제한 관련 값은 없었다(`x-figma-rest-api-request-id` 만).
+
+| 호출 | 결과 |
+|---|---|
+| 기존 토큰으로 `meta` | 401 `{"status":401,"err":"Invalid token"}` (토큰 만료) |
+| `GET /v1/files/:key/meta` (Tier 3) | 200, 1.2초, 958B. `file` 키: `name`, `folder_name`, `last_touched_at`, `creator`, `last_touched_by`, `thumbnail_url`, `editorType`, `version`, `link_access`, `url`, `role`. `role` 은 `viewer`, `link_access` 는 `org_view` |
+| `GET /v1/files/:key?depth=2` (Tier 1) | 200, 4.6초, 177,131B. 페이지 13개, 최상위 객체 163개(FRAME 48, INSTANCE 47, SECTION 46, TEXT 11, GROUP 3, RECTANGLE 6, VECTOR 2). `version` 이 `meta` 와 같다 |
+| `GET /v1/files/:key` 전체 (Tier 1) | 200, 93.1초, 300,915,468B |
+
+전체 응답의 구성
+- 노드 213,986개, 최대 깊이 26. INSTANCE 66,432, FRAME 45,661, VECTOR 42,938, TEXT 38,340, RECTANGLE 8,008, GROUP 5,321, ELLIPSE 5,009, BOOLEAN_OPERATION 1,007, SLOT 759, SECTION 248, COMPONENT 169, LINE 50, COMPONENT_SET 29, CANVAS 13.
+- `visible: false` 노드 29,615개(13.8%).
+- TEXT 38,340개 모두 `characters` 가 있다. INSTANCE 66,432개 모두 `componentId` 가 있다. 응답 최상위 `components` 맵 1,046개, `componentSets` 310개, `styles` 77개.
+- 페이지 13개 중 `---` 구분 페이지가 3개이고 `@cover` 가 있다.
+
+MCP 색인과의 대조는 성립하지 않았다. 대조에 쓴 MCP 색인(`~/.cache/fig/index.xml.gz`, 16,790노드)은 이 파일이 아니라 Figma 에서 활성이던 다른 파일에서 만든 것이다. 페이지 이름이 겹치지 않고(MCP: `🟢 Design`, `Critique`, `Design QA`, `ref`, `Cover` 등) 노드 id 도 최상위 document 하나만 겹쳤다. 그래서 REST 와 MCP 의 노드 범위(인스턴스 내부, 벡터)와 타입 대응 차이는 아직 알 수 없다.
+
+시사점
+- 전체 읽기는 인덱싱 수단이 아니다. 깊이별 분할이 필수다.
+- 인스턴스의 원본 컴포넌트 연결(`componentId` + `components` 맵)은 이 파일에서 전 인스턴스에 있다.
+- `meta` 의 `version` 이 `GET file` 의 `version` 과 같은 값이라 신선도 확인에 쓸 수 있는 후보다. 편집에 따라 바뀌는지는 4번으로 확인한다.
+
+## 이어지는 실측 계획
+
+1. `GET /v1/files/:key?depth=3` 1회와 `?depth=4` 1회(Tier 1, 10초 간격): 깊이별 응답 크기와 시간으로 색인 깊이를 정한다.
+2. 같은 파일 대조: Figma 에서 `[DM] Widget Studio` 를 활성 탭으로 열어 MCP 색인을 만든 뒤(MCP 읽기 호출 1회, 상한이 풀려야 한다) 같은 시점의 REST 결과와 id·이름·타입을 대조한다. 또는 MCP 가 보던 파일의 URL 을 받아 그 파일로 REST 색인을 만든다.
+3. 위 "실측 계획" 4번(`version` 변화, 개인 Drafts 파일).
 
 ## 결정 (2026-11-22)
 
