@@ -75,9 +75,21 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
 - `fig meta 0:0` 은 문서 전량(이 문서 2MB)이다. stdout 에 흘리지 말고 `-o` 로 받는다.
   `0:1` 은 `@cover` 라 쓸모없다.
 
+## 호출 예산
+읽기 도구(`meta`·`ctx`·`vars`·`shot`·`find`·`tree`)는 호출마다 Figma MCP 호출 상한을 쓴다.
+상한은 시트·플랜별 일·분·월 단위이고 호출 수를 확인할 방법은 없다(공식 문서
+https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/). 넘으면 `Rate limit
+exceeded, please try again tomorrow` 로 막히고 풀리는 시각은 문서에 없다.
+- 같은 호출을 되풀이하거나 여러 개를 동시에 돌리지 않는다.
+- `find`·`tree` 는 서버에서 바로 받으면 문서 전체를, `--index` 는 색인 확인을 위해
+  조회마다 `get_metadata` 한 번을 쓴다. 여러 번 찾을 거면 `fig find . --limit 0 -o nodes.txt`
+  로 한 번만 받아 그 파일을 `grep` 한다.
+- `fig tools` 는 이 상한을 받지 않았다.
+
 ## 실패했을 때
 | 증상 | 의미 | 할 일 |
 |---|---|---|
+| `읽기 호출 상한에 걸렸다` | Figma MCP 호출 상한 초과 | 호출을 되풀이하지 않고 기다린다. 사용자에게 알린다 |
 | `활성 탭이 디자인·FigJam 파일이 아니다` | 서버가 파일 탭이 없다고 답함 | Figma 에서 파일 탭을 활성으로 |
 | `…에 연결하지 못했다` | 포트 3845 에 서버가 없음 | 앱 실행, Enable local MCP server |
 | `<도구> 응답이 N초 안에 오지 않았다` | 기본 30초 상한 초과 | `fig meta`·`vars` 가 응답하는지 먼저 본다. 큰 노드면 `--timeout 초` |
