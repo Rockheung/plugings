@@ -11,7 +11,7 @@ import path from 'node:path'
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
   splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
   limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS,
-  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, repeatLines, outputLines, capLines, DEFAULT_TREE_LINES, MCP_LIMIT_HOLD_MS }
+  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, repeatLines, outputLines, MCP_LIMIT_HOLD_MS }
   from '../skills/figma/scripts/fig.mjs'
 
 process.env.XDG_STATE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-state-'))
@@ -633,31 +633,6 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
   })
   const bigXml = `<document id="0:0" name="Document" x="0" y="0" width="0" height="0">\n  <canvas id="1:1" name="C" x="0" y="0" width="0" height="0">\n${Array.from({ length: 300 }, (_, i) => `    <frame id="2:${i}" name="f${i}" x="0" y="0" width="1" height="1" />`).join('\n')}\n  </canvas>\n</document>`
   const bigResult = { content: [{ type: 'text', text: bigXml }] }
-  test('tree 는 기본 200줄까지만 stdout 에 내고 남은 줄 수와 해제 방법을 알린다', async () => {
-    const r = await run(bigResult, ['tree'])
-    assert.equal(r.code, 0)
-    assert.equal(r.out.trimEnd().split('\n').length, DEFAULT_TREE_LINES)
-    assert.match(r.err, /102줄 더 있다 \(--limit 0 으로 전부/)
-  })
-  test('tree --limit 0 과 -o 는 전부 낸다', async () => {
-    const all = await run(bigResult, ['tree', '--limit', '0'])
-    assert.equal(all.out.trimEnd().split('\n').length, 302)
-    assert.doesNotMatch(all.err, /더 있다/)
-    const file = path.join(os.tmpdir(), `fig-tree-${process.pid}.txt`)
-    try {
-      const r = await run(bigResult, ['tree', '-o', file])
-      assert.equal(fs.readFileSync(file, 'utf8').trimEnd().split('\n').length, 302)
-      assert.equal(r.out, '')
-    } finally { fs.rmSync(file, { force: true }) }
-  })
-  test('tree --limit N 은 지정한 줄 수만큼, tree --json 은 유효한 JSON 배열로 자른다', async () => {
-    const few = await run(bigResult, ['tree', '--limit', '5'])
-    assert.equal(few.out.trimEnd().split('\n').length, 5)
-    const json = await run(bigResult, ['tree', '--json'])
-    const parsed = JSON.parse(json.out)
-    assert.equal(parsed.length, DEFAULT_TREE_LINES)
-    assert.match(json.err, /102개 더 있다/)
-  })
   test('find 의 기본 건수 상한 50 은 그대로다', async () => {
     const r = await run(bigResult, ['find', 'f'])
     assert.equal(r.out.trimEnd().split('\n').length, 50)
@@ -666,7 +641,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
   test('stdout 으로 나간 출력은 명령·바이트·줄 수와 함께 원장에 남고, 파일 출력은 구분되며, usage 는 기록하지 않는다', async () => {
     const r = await run(bigResult, ['tree'])
     const out = r.ledger.filter((c) => c.event === 'output')
-    assert.deepEqual(out.map((c) => [c.cmd, c.to, c.bytes, c.lines]), [['tree', 'stdout', r.bytes, DEFAULT_TREE_LINES]])
+    assert.deepEqual(out.map((c) => [c.cmd, c.to, c.bytes, c.lines]), [['tree', 'stdout', r.bytes, 302]])
     const file = path.join(os.tmpdir(), `fig-tree-${process.pid}-b.txt`)
     try {
       const f = await run(bigResult, ['tree', '-o', file])
@@ -795,13 +770,6 @@ describe('호출 원장 — 읽기·예산 판정·집계', () => {
     const calls = Array.from({ length: 8 }, (_, i) => [0, 1].map((k) => ({ backend: 'mcp', kind: 'tools/call', name: 't', node: `n${i}`, t: now - 1000 - k }))).flat()
     assert.equal(repeatLines(calls, now).filter((l) => l.startsWith('  ')).length, 5)
     assert.match(repeatLines([], now).join('\n'), /tools\/call 0회 중 대상 노드가 있는 0회에서 같은 도구·노드를 다시 부른 것 0회/)
-  })
-  test('capLines: 한도 이하·0 은 그대로, 넘으면 앞에서 자르고 남은 줄 수를 센다', () => {
-    const text = ['a', 'b', 'c', 'd'].join('\n')
-    assert.deepEqual(capLines(text, 4), { text, more: 0 })
-    assert.deepEqual(capLines(text, 0), { text, more: 0 })
-    assert.deepEqual(capLines(text, 3), { text: 'a\nb\nc', more: 1 })
-    assert.deepEqual(capLines('', 3), { text: '', more: 0 })
   })
   test('출력 집계: stdout 만, 명령별 횟수·합계·최대, 합계 내림차순', () => {
     const o = (cmd, bytes, ago, to = 'stdout') => ({ event: 'output', to, cmd, bytes, t: now - ago })

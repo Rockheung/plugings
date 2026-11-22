@@ -396,14 +396,6 @@ export function findNodes(nodes, pattern, { hidden = false, type = null, prop = 
 
 export const DEFAULT_FIND_LIMIT = 50
 
-export const DEFAULT_TREE_LINES = 200
-
-export function capLines(text, limit) {
-  const lines = text.split('\n')
-  if (!limit || lines.length <= limit) return { text, more: 0 }
-  return { text: lines.slice(0, limit).join('\n'), more: lines.length - limit }
-}
-
 export function limitHits(hits, limit) {
   if (!limit || hits.length <= limit) return { shown: hits, more: 0 }
   return { shown: hits.slice(0, limit), more: hits.length - limit }
@@ -593,7 +585,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 
 찾기 — 문서 전체에서 노드를 찾는다
   find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지 출력 (기본 50건까지)
-  tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트, 기본 200줄까지)
+  tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트)
   index  [URL|파일키]   문서 전체를 받아 로컬에 저장한다. find·tree 에 --index 를 주면
                         서버에서 문서 전체를 다시 받지 않고 저장본으로 답한다.
                         파일 URL·키와 Figma 토큰(FIGMA_TOKEN 또는 ~/.config/fig/token)이 있으면
@@ -622,7 +614,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   --type T         이 타입의 노드만 (frame · text · symbol · instance …)
   --prop 이름=값   이름에 든 변형 속성이 일치하는 노드만 (예: Orientation=Portrait)
   --square N|A-B   너비와 높이가 같고 그 크기가 N 또는 A~B 인 노드만 (아이콘 찾기)
-  --limit N        stdout 출력 상한(find 는 건수 기본 50, tree 는 줄 수 기본 200), 0 은 제한 없음 (-o 로 파일에 쓰면 전부)
+  --limit N        stdout 출력 상한, 기본 50, 0 은 제한 없음 (-o 로 파일에 쓰면 전부)
   --index          fig index 로 저장한 문서로 답한다 (대상 생략 시에만)
   --hidden         숨김 노드도 포함 (기본은 제외)
   -d, --depth N    tree 깊이, 기본 2
@@ -658,7 +650,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 export function parseArgs(argv) {
   const opts = {
     json: false, raw: false, force: false, hidden: false, noCache: false, index: false, depth: 2, out: null, help: false,
-    timeoutMs: DEFAULT_TIMEOUT_MS, limit: DEFAULT_FIND_LIMIT, limitGiven: false, type: null, prop: null, square: null,
+    timeoutMs: DEFAULT_TIMEOUT_MS, limit: DEFAULT_FIND_LIMIT, type: null, prop: null, square: null,
   }
   const positional = []
   for (let i = 0; i < argv.length; i++) {
@@ -673,7 +665,7 @@ export function parseArgs(argv) {
     else if (a === '-d' || a === '--depth') opts.depth = Number(argv[++i])
     else if (a === '--timeout') opts.timeoutMs = Number(argv[++i]) * 1000
     else if (a === '--index') opts.index = true
-    else if (a === '--limit') { opts.limit = Number(argv[++i]); opts.limitGiven = true }
+    else if (a === '--limit') opts.limit = Number(argv[++i])
     else if (a === '--type') opts.type = argv[++i]
     else if (a === '--prop') opts.prop = argv[++i]
     else if (a === '--square') opts.square = parseSquare(argv[++i])
@@ -739,12 +731,8 @@ export async function main(argv) {
     }
     case 'tree': {
       const nodes = await metadataNodes(rest[0], opts)
-      const limit = opts.out ? 0 : opts.limitGiven ? opts.limit : DEFAULT_TREE_LINES
-      const { text, more } = opts.json
-        ? (({ shown, more }) => ({ text: JSON.stringify(shown, null, 2), more }))(limitHits(nodes.filter((n) => n.depth <= opts.depth && (opts.hidden || !n.hidden)), limit))
-        : capLines(renderTree(nodes, opts), limit)
-      emit(text, opts.out)
-      if (more) process.stderr.write(`fig: ${more}${opts.json ? '개' : '줄'} 더 있다 (--limit 0 으로 전부, -d 로 깊이 조절, -o 로 파일에 저장)\n`)
+      emit(opts.json ? JSON.stringify(nodes.filter((n) => n.depth <= opts.depth && (opts.hidden || !n.hidden)), null, 2)
+        : renderTree(nodes, opts), opts.out)
       return 0
     }
     case 'find': {
