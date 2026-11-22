@@ -56,7 +56,8 @@ export function readCalls(sinceMs, dir = stateDir(), now = Date.now()) {
 }
 
 const isRequest = (c) => !c.event
-const isBudgeted = (c) => isRequest(c) && (c.backend === 'rest' || c.kind === 'tools/call')
+const isExecutedCall = (c) => isRequest(c) && c.kind === 'tools/call' && c.http !== 404
+const isBudgeted = (c) => isRequest(c) && (c.backend === 'rest' || isExecutedCall(c))
 
 export function checkBudget(backend, calls, env = process.env, now = Date.now()) {
   const budget = BUDGETS[backend]
@@ -91,7 +92,7 @@ function guard(backend, opts) {
 }
 
 export function repeatLines(calls, now = Date.now()) {
-  const recent = calls.filter((c) => isRequest(c) && c.kind === 'tools/call' && c.t > now - DAY_MS)
+  const recent = calls.filter((c) => isExecutedCall(c) && c.t > now - DAY_MS)
   const targeted = recent.filter((c) => c.node)
   const counts = new Map()
   for (const c of targeted) counts.set(`${c.name} ${c.node}`, (counts.get(`${c.name} ${c.node}`) ?? 0) + 1)
@@ -129,7 +130,7 @@ export function renderUsage(calls, now = Date.now()) {
     `예산 — ${budgetLine('mcp')} | ${budgetLine('rest')}`,
     ...repeatLines(calls, now),
     '',
-    '예산에 세는 요청: MCP tools/call, REST 전부. initialize·tools/list 는 기록만 한다.',
+    '예산에 세는 요청: MCP tools/call(세션 만료 404 제외), REST 전부. initialize·tools/list 는 기록만 한다.',
     '이 CLI 가 보낸 요청만 센다. 같은 계정의 다른 클라이언트 호출은 빠져 있어 서버가 센 양은 이보다 많을 수 있다.',
     '하루 기준은 최근 24시간이다. 서버가 하루를 언제 새로 시작하는지는 알 수 없다.',
   ].join('\n')
