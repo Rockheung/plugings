@@ -60,9 +60,11 @@
 ### 3. 인증과 비밀값
 
 - 토큰은 `X-Figma-Token` 헤더로만 보낸다. scope 는 `file_content:read`, `file_metadata:read`.
-- 읽는 순서: 환경변수 `FIGMA_TOKEN`, 없으면 `secret-get api.figma.com`(secrets 스킬의 호스트 이름 규칙). 코드·저장소·테스트 픽스처·로그·stderr·오류 메시지에 토큰 값을 넣지 않는다.
+- 읽는 순서: 환경변수 `FIGMA_TOKEN`, 없으면 `${XDG_CONFIG_HOME:-~/.config}/fig/token` 파일. 코드·저장소·테스트 픽스처·로그·stderr·오류 메시지에 토큰 값을 넣지 않는다.
 - 403 이면 토큰이 무효거나 만료된 것으로 보고 한국어로 안내한다(값은 출력하지 않는다).
-- 저장 절차: 사용자가 별도 터미널에서 `secret-store api.figma.com` 을 실행해 GUI 팝업에 토큰을 입력하고, `secret-get --prime api.figma.com` 으로 passphrase 캐시를 채운다. `secret-store` 는 Claude Code 경유 실행을 거부하므로 에이전트는 저장하지 않고 클립보드도 읽지 않는다.
+- 저장: 설정 경로 `${XDG_CONFIG_HOME:-~/.config}/fig/token` 에 base64 로 인코딩해 둔다. 폴더 권한 `0700`, 파일 권한 `0600`. base64 는 인코딩일 뿐 암호화가 아니므로 실제 보호는 파일 권한이다. 이 맥에서 같은 사용자로 도는 프로세스는 읽을 수 있다.
+- `slt` 의 저장 방식(Secure Enclave 로 봉인한 `vault.sealed`, 메뉴바 앱의 소켓으로만 접근, Touch ID 로 열기)은 따르지 않는다. `slt` 명령은 저장한 값을 꺼내는 명령이 없고(계정 비밀번호는 출력하지 않는다) 네이티브 앱이 필요해서 `fig` 가 읽을 방법이 없다.
+- 토큰은 사용자가 클립보드에 넣어 주면 에이전트가 파일로 옮기고 값은 출력하지 않는다.
 
 ### 4. 호출 예산과 속도 제어
 
@@ -113,12 +115,12 @@
 
 1. 색인 소스: REST 색인을 MCP 색인과 같은 형식으로 쓰고 `source` 로만 구분한다.
 2. `--type` 어휘: 소문자 REST 타입으로 통일한다.
-3. 토큰 보관: `secret-get api.figma.com`, 저장은 사용자가 `secret-store api.figma.com` 으로 한다.
+3. 토큰 보관: `${XDG_CONFIG_HOME:-~/.config}/fig/token`(base64, 파일 `0600`·폴더 `0700`).
 4. 429 대기 상한: 15초(관례값).
 5. 범위: 구조 읽기(`index`·`find`·`tree`)만. `shot` 의 REST 경로는 넣지 않는다.
 6. 실측 파일: 1~3번은 `[DM] Widget Studio`, 4번은 사용자의 개인 Drafts 파일.
 
 ## 구현 전에 남은 입력
 
-- 사용자가 `secret-store api.figma.com` 과 `secret-get --prime api.figma.com` 을 실행해 토큰을 보관한다.
+- 사용자가 토큰을 클립보드에 넣는다(2026-11-22 확인 시점에 클립보드가 비어 있었다).
 - 4번에 쓸 개인 Drafts 파일의 URL 과, 그 파일을 편집했다는 알림.
