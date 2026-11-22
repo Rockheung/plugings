@@ -10,7 +10,7 @@ import path from 'node:path'
 
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
   splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
-  limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex }
+  limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS }
   from '../skills/figma/scripts/fig.mjs'
 
 describe('parseNodeId — URL 을 그대로 붙여넣어도 받는다', () => {
@@ -361,18 +361,21 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
   const sse = (obj, sid) => new Response(`event: message\ndata: ${JSON.stringify(obj)}\n\n`,
     { headers: { 'content-type': 'text/event-stream', ...(sid ? { 'mcp-session-id': sid } : {}) } })
 
-  const run = async (toolResult, args, { viaShellPipe = false } = {}) => {
+  const run = async (toolResult, args, { viaShellPipe = false, prepare = null } = {}) => {
+    let calls = 0
     const server = Bun.serve({
       port: 0,
       async fetch(req) {
         const body = await req.json()
         if (body.method === 'initialize') return sse({ jsonrpc: '2.0', id: body.id, result: {} }, 'S')
         if (body.method === 'notifications/initialized') return new Response(null, { status: 202 })
+        calls += 1
         return sse({ jsonrpc: '2.0', id: body.id, result: toolResult })
       },
     })
     const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-test-'))
     try {
+      prepare?.(path.join(cache, 'fig'))
       const command = viaShellPipe
         ? ['sh', '-c', '"$0" "$@" | cat', process.execPath, FIG, ...args]
         : [process.execPath, FIG, ...args]
@@ -382,7 +385,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
         stderr: 'pipe',
       })
       const [out, err, code] = await Promise.all([new Response(proc.stdout).arrayBuffer(), new Response(proc.stderr).text(), proc.exited])
-      return { bytes: out.byteLength, err, code }
+      return { bytes: out.byteLength, out: Buffer.from(out).toString('utf8'), err, code, calls }
     } finally {
       server.stop(true)
       fs.rmSync(cache, { recursive: true, force: true })
@@ -403,5 +406,45 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     const { err, code } = await run({ isError: true, content: [{ type: 'text', text: 'Rate limit exceeded, please try again tomorrow' }] }, ['vars', '1:2'])
     assert.equal(code, 1)
     assert.match(err, /읽기 호출 상한에 걸렸다/)
+  })
+
+  const probeNode = (name) => ({ content: [{ type: 'text', text: `<frame id="6040:500" name="${name}" x="0" y="0" width="24" height="24" hidden="true" />` }] })
+  const indexBuiltAt = (builtAt) => (dir) => writeIndex(FILTER_XML, filterNodes, dir, builtAt)
+
+  test('5분 이내 색인은 서버를 부르지 않고 답한다', async () => {
+    const { out, err, code, calls } = await run(probeNode('square-hidden'), ['find', 'chevron', '--index', '--limit', '0'], { prepare: indexBuiltAt(Date.now() - 60000) })
+    assert.equal(code, 0)
+    assert.equal(calls, 0)
+    assert.match(out, /chevron-up/)
+    assert.match(err, /서버 확인 생략/)
+  })
+  test('5분이 지난 색인은 마지막 노드를 서버에 한 번 확인하고 같으면 답한다', async () => {
+    const { out, err, code, calls } = await run(probeNode('square-hidden'), ['find', 'chevron', '--index', '--limit', '0'], { prepare: indexBuiltAt(Date.now() - INDEX_TRUST_MS - 60000) })
+    assert.equal(code, 0)
+    assert.equal(calls, 1)
+    assert.match(out, /chevron-up/)
+    assert.doesNotMatch(err, /서버 확인 생략/)
+  })
+  test('5분이 지난 색인이 다른 파일의 것이면 답하지 않는다', async () => {
+    const { out, err, code, calls } = await run(probeNode('다른 파일의 노드'), ['find', 'chevron', '--index', '--limit', '0'], { prepare: indexBuiltAt(Date.now() - INDEX_TRUST_MS - 60000) })
+    assert.equal(code, 1)
+    assert.equal(calls, 1)
+    assert.equal(out, '')
+    assert.match(err, /색인과 다르거나/)
+  })
+})
+
+describe('isFreshIndex — 색인을 서버 확인 없이 믿는 시간', () => {
+  const now = 1_000_000_000
+  test('5분 미만이면 믿는다', () => {
+    assert.equal(isFreshIndex(now - 60000, now), true)
+    assert.equal(isFreshIndex(now, now), true)
+  })
+  test('5분 이상이면 확인한다', () => {
+    assert.equal(isFreshIndex(now - INDEX_TRUST_MS, now), false)
+    assert.equal(isFreshIndex(now - 6 * 60000, now), false)
+  })
+  test('만든 시각이 미래이면(시계 어긋남) 믿지 않는다', () => {
+    assert.equal(isFreshIndex(now + 1000, now), false)
   })
 })

@@ -34,9 +34,11 @@ fig find . --prop Orientation=Portrait    # 이름의 변형 속성 이름=값
 
 **문서가 크면 색인을 쓴다.** 문서 전체를 매번 받아 오면 느리다(이 문서 16,790노드에서
 약 1.7초). `fig index` 로 한 번 저장하면 `fig find … --index`, `fig tree --index` 가
-저장본으로 답한다(약 0.5초, 출력은 색인 없이 부른 것과 같다).
-- 색인은 **한 벌**이다. 다른 파일을 열었거나 문서를 편집했으면 `fig` 가 "색인이 다르거나
-  오래됐다" 로 알려 주니 `fig index` 로 다시 만든다.
+저장본으로 답한다(출력은 색인 없이 부른 것과 같다). 만든 지 5분 미만이면 서버를 부르지
+않고(호출 0회) 답하고, 그 뒤에는 서버에 마지막 노드를 한 번 물어 확인한 다음 답한다(약 0.5초).
+- 색인은 **한 벌**이다. 5분 미만일 때는 확인하지 않으므로(stderr 에 `서버 확인 생략`), 그 사이
+  다른 파일을 열었거나 문서를 편집했다면 `fig index` 로 다시 만든다. 5분이 지난 색인은
+  `fig` 가 확인해서 다르면 "색인이 다르거나 오래됐다" 로 알려 준다.
 - `--index` 는 문서 전체(대상 생략)에만 쓴다. 특정 노드 아래는 `--index` 없이 조회한다.
 
 **2. 구조를 본다**
@@ -81,9 +83,9 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
 https://developers.figma.com/docs/figma-mcp-server/rate-limits-access/). 넘으면 `Rate limit
 exceeded, please try again tomorrow` 로 막히고 풀리는 시각은 문서에 없다.
 - 같은 호출을 되풀이하거나 여러 개를 동시에 돌리지 않는다.
-- `find`·`tree` 는 서버에서 바로 받으면 문서 전체를, `--index` 는 색인 확인을 위해
-  조회마다 `get_metadata` 한 번을 쓴다. 여러 번 찾을 거면 `fig find . --limit 0 -o nodes.txt`
-  로 한 번만 받아 그 파일을 `grep` 한다.
+- `find`·`tree` 는 서버에서 바로 받으면 문서 전체(호출 1회)를 쓴다. `--index` 는 색인이 5분
+  미만이면 0회이고, 그 뒤에는 확인용 `get_metadata` 1회를 쓴다. 여러 번 찾을 거면 `fig index`
+  한 번(1회) 뒤 5분 안에 `--index` 로 찾는다.
 - `fig tools` 는 이 상한을 받지 않았다.
 
 ## 실패했을 때
