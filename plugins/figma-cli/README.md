@@ -30,7 +30,7 @@ ln -sf <이 레포 체크아웃>/plugins/figma-cli/skills/figma/scripts/fig.mjs 
 찾기 — 문서 전체에서 노드를 찾는다
 fig find  <패턴> [대상]   노드 이름을 정규식으로 검색, 조상 경로까지 (기본 50건까지)
 fig tree  [대상]          메타데이터를 요약 트리로 (대상 기본값 0:0 = 문서 루트)
-fig index                 문서 전체를 받아 저장. find·tree 에 --index 를 주면 저장본으로 답한다
+fig index [URL|파일키]    문서 전체를 받아 저장. find·tree 에 --index 를 주면 저장본으로 답한다
 
 보기 — 노드 하나를 자세히 본다
 fig meta  [대상]          노드 트리 메타데이터 XML. get_metadata
@@ -110,6 +110,15 @@ fig call get_motion_context '{"nodeId":"1:2","recursive":true}'
   `fig index` 로 다시 만든다. 5분(`INDEX_TRUST_MS`)은 읽기 호출 상한을 아끼려고 정한
   값이고 측정으로 근거를 댈 수 있는 값이 아니다. 파일이 한 벌이라 다른 문서의 색인이
   섞이지는 않는다.
+- **`fig index <URL>` 은 파일의 마지막 편집 기록을 같이 저장한다.** Figma REST
+  `GET /v1/files/:key/meta` 의 `last_touched_at` 을 색인 메타(`file.key`·`file.lastTouchedAt`)에
+  넣고, `--index` 조회 때 같은 호출로 현재 값과 비교한다(MCP 호출 0회, 0.4~1.2초). 같으면 5분이
+  지난 색인도 그대로 답하고, 다르면 답하지 않고 다시 만들라고 알린다. 개인 파일에서 노드를
+  복제하기 전후로 재 보니 `last_touched_at` 은 편집 후 바뀌고 편집이 없으면 그대로였다
+  (`version` 은 바뀌지 않아 쓰지 않는다. `docs/rest-read-path.md`). 편집 직후 갱신까지의 지연은
+  재지 않았다. 토큰은 `FIGMA_TOKEN` 환경변수가 `${XDG_CONFIG_HOME:-~/.config}/fig/token`
+  (base64 한 줄)보다 앞선다. 토큰이 없거나 REST 가 실패하면 stderr 로 사유를 알리고 5분 규칙으로
+  답한다. 파일 URL 없이 만든 색인에는 기록이 없어 REST 를 부르지 않는다.
 - **끝낼 때 `process.exit` 를 부르지 않고 `process.exitCode` 만 정한다.** `process.exit` 는
   파이프로 아직 못 나간 출력을 버려서, 128KB 를 넘는 출력이 `| grep`·`| wc` 에서 잘린다
   (실측: bun 131072B, node 65536B 에서 멈추고 파일 리다이렉트는 전부 나왔다). 이벤트 루프가
