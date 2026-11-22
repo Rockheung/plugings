@@ -1,6 +1,6 @@
-# figma-cli REST 읽기 경로 설계안 (초안)
+# figma-cli REST 읽기 경로 설계안
 
-상태: 초안. 구현하지 않았고, 아래 "결정이 필요한 것" 이 정해지기 전에는 구현하지 않는다.
+상태: 결정 반영본(2026-11-22). 구현하지 않았다. 구현 전에 "실측 계획" 4회를 마친다.
 
 ## 목적과 범위
 
@@ -60,15 +60,15 @@
 ### 3. 인증과 비밀값
 
 - 토큰은 `X-Figma-Token` 헤더로만 보낸다. scope 는 `file_content:read`, `file_metadata:read`.
-- 읽는 순서: 환경변수 `FIGMA_TOKEN`, 없으면 `secret-get figma/pat`. 코드·저장소·테스트 픽스처·로그·stderr·오류 메시지에 토큰 값을 넣지 않는다.
+- 읽는 순서: 환경변수 `FIGMA_TOKEN`, 없으면 `secret-get api.figma.com`(secrets 스킬의 호스트 이름 규칙). 코드·저장소·테스트 픽스처·로그·stderr·오류 메시지에 토큰 값을 넣지 않는다.
 - 403 이면 토큰이 무효거나 만료된 것으로 보고 한국어로 안내한다(값은 출력하지 않는다).
-- 저장 절차: `secret-set` 이 없으므로 보관 방법(GPG 암호화 파일 규약)을 구현 전에 정한다. 클립보드의 토큰은 이 절차가 정해질 때까지 읽지 않는다.
+- 저장 절차: 사용자가 별도 터미널에서 `secret-store api.figma.com` 을 실행해 GUI 팝업에 토큰을 입력하고, `secret-get --prime api.figma.com` 으로 passphrase 캐시를 채운다. `secret-store` 는 Claude Code 경유 실행을 거부하므로 에이전트는 저장하지 않고 클립보드도 읽지 않는다.
 
 ### 4. 호출 예산과 속도 제어
 
 - 호출은 한 프로세스에서 직렬로 보낸다. 동시 호출을 하지 않는다.
-- 429 이면 `Retry-After` 를 읽는다. 대기가 20초 이하이면 기다렸다가 한 번 재시도하고, 넘으면 중단하고 `X-Figma-Plan-Tier`·`X-Figma-Rate-Limit-Type` 값과 대기 시간을 안내한다. 이 헤더로 사용자의 플랜·시트를 확인할 수 있다.
-- 20초는 근거가 있는 값이 아니고 에이전트가 응답을 기다리는 시간의 상한으로 둔 값이다.
+- 429 이면 `Retry-After` 를 읽는다. 대기가 15초 이하이면 기다렸다가 한 번 재시도하고, 넘으면 중단하고 `X-Figma-Plan-Tier`·`X-Figma-Rate-Limit-Type` 값과 대기 시간을 안내한다. 이 헤더로 사용자의 플랜·시트를 확인할 수 있다.
+- 15초는 측정한 값이 아니라 대기 상한의 관례값(기본 15초, 도달하면 판정하고 연장하지 않는다)이다.
 - `figma-cache-mcp` 의 토큰 버킷 구현은 쓰지 않는다. 직렬 호출과 `Retry-After` 존중만으로 요구를 만족한다.
 - 일일 상한은 문서에 없으므로 호출 수를 세어 두지 않는다. 문서가 호출 수 확인 수단을 제공하지 않기 때문이다.
 
@@ -82,7 +82,7 @@
 - `fig index <URL|fileKey>`: REST 색인을 만든다. 토큰이 없으면 지금처럼 MCP 로 만든다.
 - `fig find|tree … --index`: 가장 최근에 만든 색인을 쓴다. 파일을 명시하려면 `--file <URL|fileKey>`.
 - `--index` 의 신선도 확인: REST 색인이면 `meta` 의 `version` 을 비교한다. MCP 색인이면 지금의 5분 규칙을 유지한다.
-- `--type` 어휘: 결정이 필요하다(아래).
+- `--type` 어휘: 소문자 REST 타입(`frame`, `text`, `instance`, `component`, `rectangle` …)으로 통일한다. MCP 색인의 `symbol`·`rounded-rectangle` 같은 어휘는 REST 색인에서 쓰지 않는다.
 
 ## 확인되지 않은 것
 
@@ -95,23 +95,30 @@
 
 ## 실측 계획 (호출 예산 4회)
 
-호출 사이를 10초 이상 두고 직렬로 보낸다. 모든 응답은 저장해 두었다가 오프라인 테스트의 픽스처로 쓴다. 토큰 값은 응답·로그에 남지 않게 한다.
+호출 사이를 10초 두고 직렬로 보낸다(분당 한도 추정 상한 15회의 호출 간격 4초에 두 배 넘는 여유를 둔 관례값). 모든 응답은 저장해 두었다가 오프라인 테스트의 픽스처로 쓴다. 토큰 값은 응답·로그에 남지 않게 한다.
+
+1~3번은 `[DM] Widget Studio` 파일(`fileKey` `ZsugR6FJKIGjbKBv7DLdiZ`, 저장소의 테스트 고정 입력과 같은 파일)에 쓴다. 이 파일은 읽기만 한다.
 
 1. `GET /v1/files/:key/meta` 1회(Tier 3): 토큰·scope·파일 접근을 확인하고 `version`·`last_touched_at` 값을 기록한다.
 2. `GET /v1/files/:key?depth=2` 1회(Tier 1): 페이지 목록과 응답 크기를 확인한다.
 3. `GET /v1/files/:key` 전체 1회(Tier 1): 크기·소요 시간·필드를 확인하고, 이미 저장된 MCP 색인(`~/.cache/fig/index.xml.gz`)과 노드 id·이름을 대조한다.
-4. 문서를 편집한 뒤 `GET /v1/files/:key/meta` 1회: `version` 이 바뀌는지 확인한다.
+4. 사용자가 Figma 에서 개인 Drafts 파일 하나를 편집(노드 하나 이동 후 되돌리기)한 뒤 그 파일에 `GET /v1/files/:key/meta` 를 편집 전·후 각 1회(호출 2회, Tier 3): `version` 이 바뀌는지 확인한다. 공용 파일은 편집하지 않는다.
 
 성공 기준
 - 1번에서 200 이고 `version` 을 얻는다. 403 이면 토큰 문제로 중단한다.
 - 3번의 REST 노드 중 FRAME·TEXT·INSTANCE·COMPONENT 의 id·이름이 MCP 색인과 일치하는 비율과 불일치 사례를 목록으로 남긴다.
 - 4번에서 편집 전후 `version` 이 달라진다. 같으면 신선도 확인에 `version` 을 쓰지 않는다.
 
-## 결정이 필요한 것
+## 결정 (2026-11-22)
 
-1. 색인 소스: REST 색인을 MCP 색인과 같은 형식으로 쓰고 `source` 로만 구분한다(추천), 또는 REST 색인으로 통일하고 MCP 색인은 폐기한다.
-2. `--type` 어휘: 소문자 REST 타입(`frame`, `text`, `instance`, `component`)으로 통일하고 문서를 고친다(추천), 또는 MCP 어휘(`symbol` 등)를 별칭으로 함께 받는다.
-3. 토큰 보관: `secret-get figma/pat` 규약과 저장 절차(GPG 파일 만들기)를 먼저 정한다.
-4. 429 대기 상한 20초가 적절한지.
-5. `shot` 의 REST 경로를 이 범위에 넣을지, 구조 읽기(`index`·`find`·`tree`)만 먼저 할지(추천: 구조 읽기만).
-6. 실측 4회를 진행할 파일(`fileKey`)과, 4번에서 문서를 편집해도 되는 파일.
+1. 색인 소스: REST 색인을 MCP 색인과 같은 형식으로 쓰고 `source` 로만 구분한다.
+2. `--type` 어휘: 소문자 REST 타입으로 통일한다.
+3. 토큰 보관: `secret-get api.figma.com`, 저장은 사용자가 `secret-store api.figma.com` 으로 한다.
+4. 429 대기 상한: 15초(관례값).
+5. 범위: 구조 읽기(`index`·`find`·`tree`)만. `shot` 의 REST 경로는 넣지 않는다.
+6. 실측 파일: 1~3번은 `[DM] Widget Studio`, 4번은 사용자의 개인 Drafts 파일.
+
+## 구현 전에 남은 입력
+
+- 사용자가 `secret-store api.figma.com` 과 `secret-get --prime api.figma.com` 을 실행해 토큰을 보관한다.
+- 4번에 쓸 개인 Drafts 파일의 URL 과, 그 파일을 편집했다는 알림.
