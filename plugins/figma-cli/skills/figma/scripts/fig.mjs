@@ -90,6 +90,20 @@ function guard(backend, opts) {
   process.stderr.write(`fig: 예산 경고가 있지만 --force 라서 보낸다\n${lines}\n`)
 }
 
+export function repeatLines(calls, now = Date.now()) {
+  const recent = calls.filter((c) => isRequest(c) && c.kind === 'tools/call' && c.t > now - DAY_MS)
+  const targeted = recent.filter((c) => c.node)
+  const counts = new Map()
+  for (const c of targeted) counts.set(`${c.name} ${c.node}`, (counts.get(`${c.name} ${c.node}`) ?? 0) + 1)
+  const repeated = [...counts].filter(([, n]) => n >= 2).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+  const again = targeted.length - counts.size
+  return [
+    '',
+    `반복 호출(최근 24시간) — tools/call ${recent.length}회 중 대상 노드가 있는 ${targeted.length}회에서 같은 도구·노드를 다시 부른 것 ${again}회, 대상이 없는(선택 노드) ${recent.length - targeted.length}회는 판정 제외`,
+    ...repeated.slice(0, 5).map(([k, n]) => `  ${k}  ×${n}`),
+  ]
+}
+
 export function renderUsage(calls, now = Date.now()) {
   const windows = [60 * 1000, 60 * 60 * 1000, DAY_MS]
   const rows = new Map()
@@ -113,6 +127,8 @@ export function renderUsage(calls, now = Date.now()) {
     '',
     `마지막 상한 통지 — ${limitLine('mcp')} | ${limitLine('rest')}`,
     `예산 — ${budgetLine('mcp')} | ${budgetLine('rest')}`,
+    ...repeatLines(calls, now),
+    '',
     '예산에 세는 요청: MCP tools/call, REST 전부. initialize·tools/list 는 기록만 한다.',
     '이 CLI 가 보낸 요청만 센다. 같은 계정의 다른 클라이언트 호출은 빠져 있어 서버가 센 양은 이보다 많을 수 있다.',
     '하루 기준은 최근 24시간이다. 서버가 하루를 언제 새로 시작하는지는 알 수 없다.',
@@ -167,7 +183,8 @@ function friendlyConnError(err) {
 
 async function post(sid, body, timeoutMs) {
   const started = Date.now()
-  const entry = { backend: 'mcp', kind: body.method, name: body.params?.name ?? null }
+  const isCall = body.method === 'tools/call'
+  const entry = { backend: 'mcp', kind: body.method, name: body.params?.name ?? null, ...(isCall && { node: body.params?.arguments?.nodeId ?? null }) }
   try {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
@@ -561,7 +578,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   shot  [대상]          PNG 스크린샷. get_screenshot
 
 호출 기록
-  usage                 이 CLI 가 보낸 요청의 집계(1분·1시간·24시간), 마지막 상한 통지, 예산 설정
+  usage                 이 CLI 가 보낸 요청의 집계(1분·1시간·24시간), 같은 도구·노드의 반복 호출, 마지막 상한 통지, 예산 설정
 
 저수준
   tools                 서버가 제공하는 도구 목록과 인자
