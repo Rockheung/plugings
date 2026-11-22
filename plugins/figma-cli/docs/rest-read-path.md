@@ -121,6 +121,12 @@
 | `GET /v1/files/:key/meta` (Tier 3) | 200, 1.2초, 958B. `file` 키: `name`, `folder_name`, `last_touched_at`, `creator`, `last_touched_by`, `thumbnail_url`, `editorType`, `version`, `link_access`, `url`, `role`. `role` 은 `viewer`, `link_access` 는 `org_view` |
 | `GET /v1/files/:key?depth=2` (Tier 1) | 200, 4.6초, 177,131B. 페이지 13개, 최상위 객체 163개(FRAME 48, INSTANCE 47, SECTION 46, TEXT 11, GROUP 3, RECTANGLE 6, VECTOR 2). `version` 이 `meta` 와 같다 |
 | `GET /v1/files/:key` 전체 (Tier 1) | 200, 93.1초, 300,915,468B |
+| `?depth=3` (Tier 1) | 200, 13.6초, 761,864B, 노드 765개 |
+| `?depth=4` (Tier 1) | 200, 25.7초, 3,502,054B, 노드 2,951개 |
+| `?depth=2` 다시 (Tier 1) | 200, 0.95초, 177,131B (처음 4.6초) |
+| `GET /v1/files/:key/nodes?ids=1:21&depth=3` (Tier 1) | 200, 4.8초, 1,394,034B, 노드 1,330개(최상위 객체가 가장 많은 페이지). 응답 최상위 키에 `nodes`·`version` |
+
+응답 시간은 크기에 비례하지 않는다. 같은 `depth=2` 가 처음 4.6초, 다시 0.95초였고, 3.5MB(`depth=4`)가 25.7초, 301MB(전체)가 93.1초였다. 반복 호출이 빨라지는 것은 서버 쪽 캐시로 보이지만 확인하지 못했다. `depth=3`(765노드)도 처음 호출은 13.6초라 기본 대기 상한 15초에 가깝다.
 
 전체 응답의 구성
 - 노드 213,986개, 최대 깊이 26. INSTANCE 66,432, FRAME 45,661, VECTOR 42,938, TEXT 38,340, RECTANGLE 8,008, GROUP 5,321, ELLIPSE 5,009, BOOLEAN_OPERATION 1,007, SLOT 759, SECTION 248, COMPONENT 169, LINE 50, COMPONENT_SET 29, CANVAS 13.
@@ -131,15 +137,16 @@
 MCP 색인과의 대조는 성립하지 않았다. 대조에 쓴 MCP 색인(`~/.cache/fig/index.xml.gz`, 16,790노드)은 이 파일이 아니라 Figma 에서 활성이던 다른 파일에서 만든 것이다. 페이지 이름이 겹치지 않고(MCP: `🟢 Design`, `Critique`, `Design QA`, `ref`, `Cover` 등) 노드 id 도 최상위 document 하나만 겹쳤다. 그래서 REST 와 MCP 의 노드 범위(인스턴스 내부, 벡터)와 타입 대응 차이는 아직 알 수 없다.
 
 시사점
-- 전체 읽기는 인덱싱 수단이 아니다. 깊이별 분할이 필수다.
+- 전체 읽기는 인덱싱 수단이 아니다. 깊이를 제한하면 `depth=4` 에서도 노드 2,951개(전체의 1.4%)이고 TEXT 는 90개(전체 38,340개 중)라서, 문구를 파일 전체에서 찾는 색인은 REST 로 만들 수 없다. 깊은 노드를 얻으려면 `ids` 로 하위 트리를 더 받아야 하고 그 합은 전체 읽기에 가까워진다.
+- REST 는 특정 노드 몇 개의 상세(`characters`, `componentId`, 속성)를 필요할 때 받는 용도에 맞는다.
 - 인스턴스의 원본 컴포넌트 연결(`componentId` + `components` 맵)은 이 파일에서 전 인스턴스에 있다.
 - `meta` 의 `version` 이 `GET file` 의 `version` 과 같은 값이라 신선도 확인에 쓸 수 있는 후보다. 편집에 따라 바뀌는지는 4번으로 확인한다.
 
 ## 이어지는 실측 계획
 
-1. `GET /v1/files/:key?depth=3` 1회와 `?depth=4` 1회(Tier 1, 10초 간격): 깊이별 응답 크기와 시간으로 색인 깊이를 정한다.
-2. 같은 파일 대조: Figma 에서 `[DM] Widget Studio` 를 활성 탭으로 열어 MCP 색인을 만든 뒤(MCP 읽기 호출 1회, 상한이 풀려야 한다) 같은 시점의 REST 결과와 id·이름·타입을 대조한다. 또는 MCP 가 보던 파일의 URL 을 받아 그 파일로 REST 색인을 만든다.
-3. 위 "실측 계획" 4번(`version` 변화, 개인 Drafts 파일).
+1. (완료) 깊이 3·4 실측. 위 표.
+2. 위 "실측 계획" 4번(`version` 변화, 개인 Drafts 파일). 신선도 확인 방안의 전제라서 가장 먼저 필요하다.
+3. 같은 파일 대조(MCP 와 REST 의 노드 범위 차이): MCP 읽기 호출 상한이 풀린 뒤에 한다.
 
 ## 결정 (2026-11-22)
 
