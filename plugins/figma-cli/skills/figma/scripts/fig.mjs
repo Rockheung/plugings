@@ -313,14 +313,19 @@ async function indexMatchesActiveFile(meta, opts) {
   }
 }
 
+export const INDEX_TRUST_MS = 5 * 60 * 1000
+
+export const isFreshIndex = (builtAt, now = Date.now()) => now >= builtAt && now - builtAt < INDEX_TRUST_MS
+
 async function indexedNodes(nodeId, opts) {
   if (nodeId !== '0:0') throw new Error('--index 는 문서 전체(대상 생략)에만 쓴다 — 하위 트리는 --index 없이 조회한다.')
   const { meta, nodes } = readIndex()
   const age = agoText(Date.now() - meta.builtAt)
-  if (!(await indexMatchesActiveFile(meta, opts))) {
+  const fresh = isFreshIndex(meta.builtAt)
+  if (!fresh && !(await indexMatchesActiveFile(meta, opts))) {
     throw new Error(`활성 파일이 색인과 다르거나 색인이 오래됐다 (색인: ${meta.canvases[0] ?? '(캔버스 없음)'} 외, ${age} 만듦) — fig index 로 다시 만든다.`)
   }
-  process.stderr.write(`fig: 색인 기준 — ${age} 만듦, ${meta.count}노드\n`)
+  process.stderr.write(`fig: 색인 기준 — ${age} 만듦, ${meta.count}노드${fresh ? ' (서버 확인 생략)' : ''}\n`)
   return nodes
 }
 
