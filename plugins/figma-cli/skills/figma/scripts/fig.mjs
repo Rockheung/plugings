@@ -105,6 +105,22 @@ export function repeatLines(calls, now = Date.now()) {
   ]
 }
 
+export function outputLines(calls, now = Date.now()) {
+  const byCommand = new Map()
+  for (const c of calls.filter((e) => e.event === 'output' && e.to === 'stdout' && e.t > now - DAY_MS)) {
+    const row = byCommand.get(c.cmd) ?? { n: 0, sum: 0, max: 0 }
+    row.n += 1; row.sum += c.bytes; row.max = Math.max(row.max, c.bytes)
+    byCommand.set(c.cmd, row)
+  }
+  const rows = [...byCommand].sort((a, b) => b[1].sum - a[1].sum)
+  return [
+    '',
+    '대화로 나간 출력(최근 24시간, stdout) — 명령별 횟수·합계·최대',
+    ...(rows.length ? rows.map(([cmd, r]) => `  ${String(cmd).padEnd(8)} ${String(r.n).padStart(4)}회  합계 ${r.sum}B  최대 ${r.max}B`) : ['  (기록 없음)']),
+    '  -o 로 파일에 쓴 출력은 세지 않는다. 바이트 수이며 토큰 수가 아니다.',
+  ]
+}
+
 export function renderUsage(calls, now = Date.now()) {
   const windows = [60 * 1000, 60 * 60 * 1000, DAY_MS]
   const rows = new Map()
@@ -129,6 +145,7 @@ export function renderUsage(calls, now = Date.now()) {
     `마지막 상한 통지 — ${limitLine('mcp')} | ${limitLine('rest')}`,
     `예산 — ${budgetLine('mcp')} | ${budgetLine('rest')}`,
     ...repeatLines(calls, now),
+    ...outputLines(calls, now),
     '',
     '예산에 세는 요청: MCP tools/call(세션 만료 404 제외), REST 전부. initialize·tools/list 는 기록만 한다.',
     '이 CLI 가 보낸 요청만 센다. 같은 계정의 다른 클라이언트 호출은 빠져 있어 서버가 센 양은 이보다 많을 수 있다.',
@@ -550,11 +567,15 @@ async function indexedNodes(nodeId, opts) {
 // ── 출력 ─────────────────────────────────────────────────────────────────────
 
 function emit(text, out) {
+  const body = text.endsWith('\n') ? text : `${text}\n`
+  if (currentCommand !== 'usage') {
+    recordCall({ event: 'output', to: out ? 'file' : 'stdout', bytes: Buffer.byteLength(body), lines: body.split('\n').length - 1 })
+  }
   if (out) {
-    fs.writeFileSync(out, text.endsWith('\n') ? text : `${text}\n`)
+    fs.writeFileSync(out, body)
     process.stderr.write(`${out} (${Buffer.byteLength(text)} 바이트)\n`)
   } else {
-    process.stdout.write(text.endsWith('\n') ? text : `${text}\n`)
+    process.stdout.write(body)
   }
 }
 
