@@ -27,20 +27,20 @@ const BUDGETS = {
 }
 let currentCommand = null
 
-const localDay = (ms) => new Date(ms).toLocaleDateString('sv')
+const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10)
 
 export function recordCall(entry, dir = stateDir(), now = Date.now()) {
   try {
     fs.mkdirSync(dir, { recursive: true })
-    fs.appendFileSync(path.join(dir, `calls-${localDay(now)}.jsonl`), `${JSON.stringify({ t: now, cmd: currentCommand, ...entry })}\n`)
+    fs.appendFileSync(path.join(dir, `calls-${utcDay(now)}.jsonl`), `${JSON.stringify({ t: now, cmd: currentCommand, ...entry })}\n`)
   } catch (err) {
     process.stderr.write(`fig: 호출 원장에 기록하지 못했다 — ${err.message}\n`)
   }
 }
 
 export function readCalls(sinceMs, dir = stateDir(), now = Date.now()) {
-  const days = new Set([localDay(now)])
-  for (let t = sinceMs; t < now; t += 6 * 60 * 60 * 1000) days.add(localDay(t))
+  const days = new Set([utcDay(now)])
+  for (let t = sinceMs; t < now; t += 6 * 60 * 60 * 1000) days.add(utcDay(t))
   const calls = []
   for (const day of days) {
     let text
