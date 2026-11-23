@@ -768,7 +768,7 @@ describe('호출 원장 — 읽기·예산 판정·집계', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-ledger-'))
     try { return fn(dir) } finally { fs.rmSync(dir, { recursive: true, force: true }) }
   }
-  const now = new Date(2026, 10, 22, 12, 0, 0).getTime()
+  const now = Date.UTC(2026, 10, 22, 12, 0, 0)
   const HOUR = 3600000
   const call = (over = {}) => ({ backend: 'mcp', kind: 'tools/call', name: 'get_metadata', ...over })
 
@@ -780,6 +780,21 @@ describe('호출 원장 — 읽기·예산 판정·집계', () => {
     assert.deepEqual(readCalls(now - 24 * HOUR, dir, now).map((c) => c.n), [2, 3])
     assert.deepEqual(readCalls(now - 48 * HOUR, dir, now).map((c) => c.n), [1, 2, 3])
     assert.equal(fs.readdirSync(dir).length, 2)
+  }))
+  test('원장 파일 이름은 시간대와 무관하게 UTC 날짜다', () => withDir((dir) => {
+    const before = process.env.TZ
+    try {
+      for (const [i, tz] of ['Pacific/Kiritimati', 'Pacific/Pago_Pago', 'UTC'].entries()) {
+        process.env.TZ = tz
+        const at = Date.UTC(2026, 10, 22, 12, i, 0)
+        recordCall(call({ tz }), dir, at)
+        assert.deepEqual(readCalls(at - 1000, dir, at + 1000).map((c) => c.tz), [tz])
+      }
+    } finally {
+      if (before === undefined) delete process.env.TZ
+      else process.env.TZ = before
+    }
+    assert.deepEqual(fs.readdirSync(dir), ['calls-2026-11-22.jsonl'])
   }))
   test('날짜 파일이 없으면 빈 배열이다', () => withDir((dir) => {
     assert.deepEqual(readCalls(now - 24 * HOUR, dir, now), [])

@@ -140,7 +140,7 @@ fig usage                 이 CLI 가 보낸 요청의 집계, 같은 도구·�
   (실측: bun 131072B, node 65536B 에서 멈추고 파일 리다이렉트는 전부 나왔다). 이벤트 루프가
   비도록 두면 3MB 도 전부 나오고 종료도 늦어지지 않는다(bun 약 20ms, node 약 60ms).
 - **서버로 나가는 요청은 전부 원장에 남는다.** MCP 는 `post`, REST 는 `fetchFileMeta` 가 유일한
-  송신 지점이라 두 곳에서 한 줄씩 `${XDG_STATE_HOME:-~/.local/state}/fig/calls-<날짜>.jsonl` 에
+  송신 지점이라 두 곳에서 한 줄씩 `${XDG_STATE_HOME:-~/.local/state}/fig/calls-<UTC 날짜>.jsonl` 에
   덧붙인다(시각·백엔드·종류·도구·상태·소요 시간·바이트·명령 이름, 응답 본문과 토큰은 없다).
   날짜별 파일이라 기록 비용은 호출당 일정하고 읽기는 최근 이틀 분량으로 끝난다.
   `initialize`·`tools/list` 도 기록하지만 예산에는 `tools/call` 과 REST 만 센다. 세션이 만료돼 404 를 받은
