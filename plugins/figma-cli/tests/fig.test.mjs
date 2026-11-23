@@ -11,7 +11,7 @@ import path from 'node:path'
 import { parseNodeId, parseSse, parseMetadata, renderTree, findNodes, parseArgs,
   splitServerNotes, codeConnectOnlyError, timeoutError, describeServerError,
   limitHits, parseSquare, agoText, sameNode, writeIndex, readIndex, isFreshIndex, INDEX_TRUST_MS,
-  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, repeatLines, outputLines, MCP_LIMIT_HOLD_MS }
+  parseFileKey, readToken, fetchFileMeta, recordCall, readCalls, checkBudget, renderUsage, repeatLines, outputLines, responseKey, lookupResponse, storeResponse, sameResponseNote, MIN_SAME_RESPONSE_BYTES, MAX_STORED_RESPONSES, MCP_LIMIT_HOLD_MS }
   from '../skills/figma/scripts/fig.mjs'
 
 process.env.XDG_STATE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-state-'))
@@ -365,7 +365,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
   const sse = (obj, sid) => new Response(`event: message\ndata: ${JSON.stringify(obj)}\n\n`,
     { headers: { 'content-type': 'text/event-stream', ...(sid ? { 'mcp-session-id': sid } : {}) } })
 
-  const run = async (toolResult, args, { viaShellPipe = false, prepare = null, env = {}, rest = null } = {}) => {
+  const run = async (toolResult, args, { viaShellPipe = false, prepare = null, env = {}, rest = null, cacheDir = null } = {}) => {
     let calls = 0
     let restCalls = 0
     let restToken = null
@@ -388,7 +388,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
         return rest(req)
       },
     })
-    const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-test-'))
+    const cache = cacheDir ?? fs.mkdtempSync(path.join(os.tmpdir(), 'fig-test-'))
     try {
       prepare?.(path.join(cache, 'fig'))
       const command = viaShellPipe
@@ -416,7 +416,7 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     } finally {
       server.stop(true)
       restServer?.stop(true)
-      fs.rmSync(cache, { recursive: true, force: true })
+      if (!cacheDir) fs.rmSync(cache, { recursive: true, force: true })
     }
   }
 
@@ -625,6 +625,79 @@ describe('CLI 프로세스 — 로컬 가짜 서버로 실제 실행', () => {
     assert.match(r.out, /mcp: 2시간 전 서버가 상한을 알렸다/)
     assert.match(r.out, /이 CLI 가 보낸 요청만 센다/)
   })
+  const bigText = (tag) => `${tag}\n${'가나다 abc 0123456789\n'.repeat(120).trimEnd()}`
+  const textResult = (text) => ({ content: [{ type: 'text', text }] })
+  const withCache = async (fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-same-'))
+    try { return await fn(dir) } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+  test('같은 호출의 응답이 이전 출력과 같으면 본문 대신 한 줄과 저장본 경로를 낸다', () => withCache(async (dir) => {
+    const first = await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    assert.equal(first.out, `${bigText('A')}\n`)
+    const second = await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    assert.equal(second.code, 0)
+    assert.equal(second.calls, 1)
+    assert.match(second.out, /^\(같은 응답 — 본문 생략\) .* 출력한 것과 내용이 같다 \(sha256 [0-9a-f]{12}, \d+B\)\. 저장본: \S+\.txt — 읽거나 --full 로 본문을 다시 낸다\.\n$/)
+    assert.ok(second.bytes < first.bytes / 10)
+    const saved = second.out.match(/저장본: (\S+\.txt)/)[1]
+    assert.equal(fs.readFileSync(saved, 'utf8'), bigText('A'))
+  }))
+  test('응답이 바뀌면 본문을 다시 내고, 그 뒤 같은 응답은 다시 생략한다', () => withCache(async (dir) => {
+    await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    const changed = await run(textResult(bigText('B')), ['meta', '1:2'], { cacheDir: dir })
+    assert.equal(changed.out, `${bigText('B')}\n`)
+    const again = await run(textResult(bigText('B')), ['meta', '1:2'], { cacheDir: dir })
+    assert.match(again.out, /^\(같은 응답/)
+  }))
+  test('--full 은 같은 응답이어도 본문을 내고, -o 는 파일에 전부 쓴다', () => withCache(async (dir) => {
+    await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    const full = await run(textResult(bigText('A')), ['meta', '1:2', '--full'], { cacheDir: dir })
+    assert.equal(full.out, `${bigText('A')}\n`)
+    const file = path.join(dir, 'out.txt')
+    const toFile = await run(textResult(bigText('A')), ['meta', '1:2', '-o', file], { cacheDir: dir })
+    assert.equal(toFile.out, '')
+    assert.equal(fs.readFileSync(file, 'utf8'), `${bigText('A')}\n`)
+  }))
+  test('1KB 미만 응답은 같아도 본문을 낸다', () => withCache(async (dir) => {
+    const small = textResult('x'.repeat(MIN_SAME_RESPONSE_BYTES - 1))
+    await run(small, ['meta', '1:2'], { cacheDir: dir })
+    const again = await run(small, ['meta', '1:2'], { cacheDir: dir })
+    assert.equal(again.out, `${'x'.repeat(MIN_SAME_RESPONSE_BYTES - 1)}\n`)
+  }))
+  test('대상·출력 형식·도구가 다르면 서로 다른 응답으로 센다', () => withCache(async (dir) => {
+    await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    const otherNode = await run(textResult(bigText('A')), ['meta', '3:4'], { cacheDir: dir })
+    assert.doesNotMatch(otherNode.out, /^\(같은 응답/)
+    const raw = await run(textResult(bigText('A')), ['meta', '1:2', '--raw'], { cacheDir: dir })
+    assert.doesNotMatch(raw.out, /^\(같은 응답/)
+    const otherTool = await run(textResult(bigText('A')), ['vars', '1:2'], { cacheDir: dir })
+    assert.doesNotMatch(otherTool.out, /^\(같은 응답/)
+    const textAgain = await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    assert.match(textAgain.out, /^\(같은 응답/)
+  }))
+  test('저장본이 지워졌으면 본문을 다시 낸다', () => withCache(async (dir) => {
+    await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    for (const f of fs.readdirSync(path.join(dir, 'fig', 'responses'))) if (f.endsWith('.txt')) fs.rmSync(path.join(dir, 'fig', 'responses', f))
+    const again = await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    assert.equal(again.out, `${bigText('A')}\n`)
+  }))
+  test('ctx 와 call 도 같은 응답을 생략하고, find·tree 는 대상이 아니다', () => withCache(async (dir) => {
+    await run(textResult(bigText('A')), ['ctx', '1:2'], { cacheDir: dir })
+    assert.match((await run(textResult(bigText('A')), ['ctx', '1:2'], { cacheDir: dir })).out, /^\(같은 응답/)
+    await run(textResult(bigText('A')), ['call', 'get_x', '{"nodeId":"1:2"}'], { cacheDir: dir })
+    assert.match((await run(textResult(bigText('A')), ['call', 'get_x', '{"nodeId":"1:2"}'], { cacheDir: dir })).out, /^\(같은 응답/)
+    await run(metadataResult, ['find', 'chevron', '--limit', '0'], { cacheDir: dir })
+    const again = await run(metadataResult, ['find', 'chevron', '--limit', '0'], { cacheDir: dir })
+    assert.doesNotMatch(again.out, /^\(같은 응답/)
+  }))
+  test('생략한 본문 크기가 원장에 남고 fig usage 가 합계를 보여 준다', () => withCache(async (dir) => {
+    await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    const second = await run(textResult(bigText('A')), ['meta', '1:2'], { cacheDir: dir })
+    const omitted = second.ledger.filter((c) => c.event === 'output' && c.omitted)
+    assert.deepEqual(omitted.map((c) => c.omitted), [Buffer.byteLength(bigText('A'))])
+    const usage = await run(textResult(bigText('A')), ['usage'], { cacheDir: dir })
+    assert.match(usage.out, new RegExp(`같은 응답이라 본문을 생략한 출력 1회, 생략한 본문 합계 ${Buffer.byteLength(bigText('A'))}B`))
+  }))
   test('--help 는 호출 기록 명령·--force·예산 환경변수를 안내하고 종료 코드 0 이다', async () => {
     const r = await run(metadataResult, ['--help'])
     assert.equal(r.code, 0)
@@ -795,6 +868,54 @@ describe('호출 원장 — 읽기·예산 판정·집계', () => {
   })
   test('집계: 기록이 없으면 그렇게 알린다', () => {
     assert.match(renderUsage([], now), /\(기록 없음\)/)
+  })
+})
+
+describe('응답 저장본 — 키·저장·조회·정리', () => {
+  const withDir = (fn) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fig-resp-'))
+    try { return fn(dir) } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+  test('responseKey: 인자 순서와 무관하고, 도구·인자·형식이 다르면 달라진다', () => {
+    const k = responseKey('t', { a: 1, b: 2 }, 'text')
+    assert.equal(k, responseKey('t', { b: 2, a: 1 }, 'text'))
+    assert.match(k, /^[0-9a-f]{16}$/)
+    assert.notEqual(k, responseKey('u', { a: 1, b: 2 }, 'text'))
+    assert.notEqual(k, responseKey('t', { a: 1, b: 3 }, 'text'))
+    assert.notEqual(k, responseKey('t', { a: 1, b: 2 }, 'json'))
+    assert.equal(responseKey('t', undefined, 'text'), responseKey('t', {}, 'text'))
+  })
+  test('storeResponse·lookupResponse: 본문과 해시·시각·크기·경로를 남기고, 없으면 null 이다', () => withDir((dir) => {
+    assert.equal(lookupResponse('nope', dir), null)
+    storeResponse('k1', '본문', { tool: 't' }, dir, 1234)
+    const meta = lookupResponse('k1', dir)
+    assert.deepEqual([meta.tool, meta.at, meta.bytes, meta.file], ['t', 1234, Buffer.byteLength('본문'), path.join(dir, 'k1.txt')])
+    assert.match(meta.hash, /^[0-9a-f]{64}$/)
+    assert.equal(fs.readFileSync(meta.file, 'utf8'), '본문')
+  }))
+  test('storeResponse: 같은 키는 덮어써서 항목이 늘지 않는다', () => withDir((dir) => {
+    storeResponse('k1', 'a', {}, dir, 1)
+    storeResponse('k1', 'bb', {}, dir, 2)
+    assert.deepEqual(fs.readdirSync(dir).sort(), ['k1.json', 'k1.txt'])
+    assert.equal(lookupResponse('k1', dir).bytes, 2)
+  }))
+  test('storeResponse: 상한을 넘으면 오래된 것부터 지워 상한의 2/3 로 줄인다', () => withDir((dir) => {
+    for (let i = 0; i < 9; i++) {
+      storeResponse(`k${i}`, 'x', {}, dir, i, 9)
+      const t = new Date(1_000_000 + i * 1000)
+      for (const ext of ['json', 'txt']) fs.utimesSync(path.join(dir, `k${i}.${ext}`), t, t)
+    }
+    assert.equal(fs.readdirSync(dir).filter((f) => f.endsWith('.json')).length, 9)
+    storeResponse('k9', 'x', {}, dir, 9, 9)
+    const kept = fs.readdirSync(dir).filter((f) => f.endsWith('.json')).sort()
+    assert.equal(kept.length, 6)
+    assert.ok(kept.includes('k9.json') && !kept.includes('k0.json') && !fs.existsSync(path.join(dir, 'k0.txt')))
+    assert.ok(MAX_STORED_RESPONSES > 0)
+  }))
+  test('sameResponseNote: 경과 시간·해시 앞 12자·크기·저장본 경로를 한 줄로 낸다', () => {
+    const note = sameResponseNote({ at: 0, hash: 'a'.repeat(64), bytes: 2500, file: '/x/y.txt' }, 5 * 60000)
+    assert.equal(note.includes('\n'), false)
+    for (const part of ['5분 전', 'sha256 aaaaaaaaaaaa', '2500B', '/x/y.txt', '--full']) assert.ok(note.includes(part), part)
   })
 })
 

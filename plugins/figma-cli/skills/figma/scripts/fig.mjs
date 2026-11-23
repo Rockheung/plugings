@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
 import zlib from 'node:zlib'
+import { createHash } from 'node:crypto'
 
 export const ENDPOINT = process.env.FIG_MCP_URL || 'http://127.0.0.1:3845/mcp'
 const CACHE_DIR = path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'fig')
@@ -106,6 +107,7 @@ export function repeatLines(calls, now = Date.now()) {
 }
 
 export function outputLines(calls, now = Date.now()) {
+  const omitted = calls.filter((e) => e.event === 'output' && e.omitted && e.t > now - DAY_MS)
   const byCommand = new Map()
   for (const c of calls.filter((e) => e.event === 'output' && e.to === 'stdout' && e.t > now - DAY_MS)) {
     const row = byCommand.get(c.cmd) ?? { n: 0, sum: 0, max: 0 }
@@ -117,6 +119,7 @@ export function outputLines(calls, now = Date.now()) {
     '',
     '대화로 나간 출력(최근 24시간, stdout) — 명령별 횟수·합계·최대',
     ...(rows.length ? rows.map(([cmd, r]) => `  ${String(cmd).padEnd(8)} ${String(r.n).padStart(4)}회  합계 ${r.sum}B  최대 ${r.max}B`) : ['  (기록 없음)']),
+    `  같은 응답이라 본문을 생략한 출력 ${omitted.length}회, 생략한 본문 합계 ${omitted.reduce((s, e) => s + e.omitted, 0)}B`,
     '  -o 로 파일에 쓴 출력은 세지 않는다. 바이트 수이며 토큰 수가 아니다.',
   ]
 }
@@ -566,10 +569,60 @@ async function indexedNodes(nodeId, opts) {
 
 // ── 출력 ─────────────────────────────────────────────────────────────────────
 
-function emit(text, out) {
+const RESPONSES_DIR = path.join(CACHE_DIR, 'responses')
+export const MIN_SAME_RESPONSE_BYTES = 1024
+export const MAX_STORED_RESPONSES = 300
+const sha256 = (text) => createHash('sha256').update(text).digest('hex')
+
+export function responseKey(tool, args, mode) {
+  const sorted = Object.fromEntries(Object.entries(args ?? {}).sort(([a], [b]) => (a < b ? -1 : 1)))
+  return sha256(JSON.stringify([tool, sorted, mode])).slice(0, 16)
+}
+
+export function lookupResponse(key, dir = RESPONSES_DIR) {
+  try { return JSON.parse(fs.readFileSync(path.join(dir, `${key}.json`), 'utf8')) } catch { return null }
+}
+
+function pruneResponses(dir, max) {
+  const metas = fs.readdirSync(dir).filter((f) => f.endsWith('.json'))
+  if (metas.length <= max) return
+  const oldestFirst = metas.map((f) => [f, fs.statSync(path.join(dir, f)).mtimeMs]).sort((a, b) => a[1] - b[1])
+  for (const [f] of oldestFirst.slice(0, metas.length - Math.floor(max * 2 / 3))) {
+    fs.rmSync(path.join(dir, f), { force: true })
+    fs.rmSync(path.join(dir, f.replace(/\.json$/, '.txt')), { force: true })
+  }
+}
+
+export function storeResponse(key, text, info, dir = RESPONSES_DIR, now = Date.now(), max = MAX_STORED_RESPONSES) {
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, `${key}.txt`)
+    fs.writeFileSync(file, text)
+    fs.writeFileSync(path.join(dir, `${key}.json`), JSON.stringify({ ...info, hash: sha256(text), at: now, bytes: Buffer.byteLength(text), file }))
+    pruneResponses(dir, max)
+  } catch (err) {
+    process.stderr.write(`fig: 응답 저장본을 쓰지 못했다 — ${err.message}\n`)
+  }
+}
+
+export function sameResponseNote(prev, now = Date.now()) {
+  return `(같은 응답 — 본문 생략) ${agoText(now - prev.at)} 출력한 것과 내용이 같다 (sha256 ${prev.hash.slice(0, 12)}, ${prev.bytes}B). 저장본: ${prev.file} — 읽거나 --full 로 본문을 다시 낸다.`
+}
+
+function emitResponse(tool, args, text, opts) {
+  const key = responseKey(tool, args, opts.raw ? 'raw' : opts.json ? 'json' : 'text')
+  const prev = lookupResponse(key)
+  const bytes = Buffer.byteLength(text)
+  const same = prev?.hash === sha256(text) && fs.existsSync(prev.file) && bytes >= MIN_SAME_RESPONSE_BYTES && !opts.full && !opts.out
+  if (same) return emit(sameResponseNote(prev), null, { omitted: bytes })
+  storeResponse(key, text, { tool })
+  emit(text, opts.out)
+}
+
+function emit(text, out, extra = {}) {
   const body = text.endsWith('\n') ? text : `${text}\n`
   if (currentCommand !== 'usage') {
-    recordCall({ event: 'output', to: out ? 'file' : 'stdout', bytes: Buffer.byteLength(body), lines: body.split('\n').length - 1 })
+    recordCall({ event: 'output', to: out ? 'file' : 'stdout', bytes: Buffer.byteLength(body), lines: body.split('\n').length - 1, ...extra })
   }
   if (out) {
     fs.writeFileSync(out, body)
@@ -626,6 +679,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
   --timeout SEC    응답 대기 상한, 기본 15초
   --no-cache       캐시된 세션을 쓰지 않고 새로 initialize 한다
   --force          예산·상한 기록 때문에 막힌 호출을 경고하고 그대로 보낸다
+  --full           이전 출력과 같은 응답이어도 본문을 다시 낸다 (기본은 한 줄 안내와 저장본 경로)
   -h, --help       이 도움말
 
 예시
@@ -649,7 +703,7 @@ const HELP = `fig — Figma Dev Mode MCP 를 셸에서 쓰는 CLI
 
 export function parseArgs(argv) {
   const opts = {
-    json: false, raw: false, force: false, hidden: false, noCache: false, index: false, depth: 2, out: null, help: false,
+    json: false, raw: false, force: false, full: false, hidden: false, noCache: false, index: false, depth: 2, out: null, help: false,
     timeoutMs: DEFAULT_TIMEOUT_MS, limit: DEFAULT_FIND_LIMIT, type: null, prop: null, square: null,
   }
   const positional = []
@@ -660,6 +714,7 @@ export function parseArgs(argv) {
     else if (a === '--raw') opts.raw = true
     else if (a === '--hidden') opts.hidden = true
     else if (a === '--force') opts.force = true
+    else if (a === '--full') opts.full = true
     else if (a === '--no-cache') opts.noCache = true
     else if (a === '-o' || a === '--out') opts.out = argv[++i]
     else if (a === '-d' || a === '--depth') opts.depth = Number(argv[++i])
@@ -704,18 +759,19 @@ export async function main(argv) {
       // 스크린샷 블록은 텍스트 파이프에 쓸모가 없다 — 그림이 필요하면 fig shot.
       const args = { ...nodeArgs(rest[0]), clientLanguages: 'unknown', clientFrameworks: 'unknown', excludeScreenshot: true }
       const r = await callTool('get_design_context', args, opts)
-      emit(presentText(r, opts, args), opts.out)
+      emitResponse('get_design_context', args, presentText(r, opts, args), opts)
       return 0
     }
     case 'meta': {
-      const r = await callTool('get_metadata', nodeArgs(rest[0]), opts)
-      const text = opts.json && !opts.raw ? JSON.stringify(parseMetadata(textOf(r)), null, 2) : presentText(r, opts)
-      emit(text, opts.out)
+      const args = nodeArgs(rest[0])
+      const r = await callTool('get_metadata', args, opts)
+      emitResponse('get_metadata', args, opts.json && !opts.raw ? JSON.stringify(parseMetadata(textOf(r)), null, 2) : presentText(r, opts), opts)
       return 0
     }
     case 'vars': {
-      const r = await callTool('get_variable_defs', nodeArgs(rest[0]), opts)
-      emit(presentText(r, opts), opts.out)
+      const args = nodeArgs(rest[0])
+      const r = await callTool('get_variable_defs', args, opts)
+      emitResponse('get_variable_defs', args, presentText(r, opts), opts)
       return 0
     }
     case 'shot': {
@@ -773,7 +829,7 @@ export async function main(argv) {
       let args
       try { args = rest[1] ? JSON.parse(rest[1]) : {} } catch (e) { throw new Error(`인자 JSON 을 못 읽었다: ${e.message}`) }
       const r = await callTool(rest[0], args, opts)
-      emit(presentText(r, opts), opts.out)
+      emitResponse(rest[0], args, presentText(r, opts), opts)
       return 0
     }
     default:
