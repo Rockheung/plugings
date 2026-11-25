@@ -153,6 +153,7 @@ const CODE_CONNECT_PROMPT = '\nComponents in the design the user selected is mis
 const SUPER_CRITICAL_NOTE = "SUPER CRITICAL: The generated React+Tailwind code MUST be converted to match the target project's technology stack and styling system.\n1. Analyze the target codebase to identify: technology stack, styling approach, component patterns, and design tokens\nDO NOT install any Tailwind as a dependency unless the user instructs you to do so.\n"
 const NODE_IDS_NOTE = 'Node ids have been added to the code as data attributes, e.g. `data-node-id="1:2"`.'
 const IMAGE_ASSETS_NOTE = 'Image assets are stored on a localhost server. Clients can use these images directly in code as a way to view the image assets the same way they would other remote servers.'
+const CODE_CONNECT_NOTE = 'If the node is connected to a code component in the users codebase via Code Connect, the connected component will be included in the final markup wrapped in a CodeConnectSnippet element.'
 const textBlocks = (...texts) => ({ content: texts.map((text) => ({ type: 'text', text })) })
 
 describe('splitServerNotes — 서버가 응답에 끼운 지시 문구를 데이터와 가른다', () => {
@@ -177,11 +178,17 @@ describe('splitServerNotes — 서버가 응답에 끼운 지시 문구를 데�
     assert.equal(text, 'IMPORTANT: 노드 이름이 이렇게 시작한다')
     assert.equal(notes.length, 1)
   })
-  test('get_design_context: 코드 뒤에 오는 블록은 접두어와 상관없이 모두 안내다', () => {
+  test('get_design_context: 안내 블록은 빼고 디자인 스타일 블록은 코드 뒤에 남긴다', () => {
     const code = 'export default function ChevronUp() { return null }'
-    const { text, notes } = splitServerNotes(textBlocks(code, SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE))
-    assert.equal(text, code)
-    assert.deepEqual(notes, [SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE])
+    const styles = 'These styles are contained in the design: Primary: #1A6DFF, Default: #212121.'
+    const { text, notes } = splitServerNotes(textBlocks(code, SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, styles, CODE_CONNECT_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE))
+    assert.equal(text, `${code}\n\n${styles}`)
+    assert.deepEqual(notes, [SUPER_CRITICAL_NOTE, NODE_IDS_NOTE, CODE_CONNECT_NOTE, IMAGE_ASSETS_NOTE, REMOTE_NOTE])
+  })
+  test('처음 보는 블록은 버리지 않고 데이터에 남긴다', () => {
+    const { text, notes } = splitServerNotes(textBlocks('a', 'b', REMOTE_NOTE))
+    assert.equal(text, 'a\n\nb')
+    assert.deepEqual(notes, [REMOTE_NOTE])
   })
   test('블록이 하나뿐이면 그것이 데이터다', () => {
     assert.deepEqual(splitServerNotes(textBlocks('a')), { text: 'a', notes: [] })
