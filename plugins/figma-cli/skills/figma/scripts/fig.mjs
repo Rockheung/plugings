@@ -309,11 +309,16 @@ export const imagesOf = (result) => (result.content || []).filter((b) => b.type 
 
 const isCodeConnectPrompt = (text) => /missing code connect mappings/i.test(text)
 
+const SERVER_NOTE_PREFIXES = ['IMPORTANT:', 'SUPER CRITICAL:', 'Node ids have been added', 'Image assets are stored', 'If the node is connected to a code component']
+const isServerNote = (text) => SERVER_NOTE_PREFIXES.some((p) => text.startsWith(p))
+
 export function splitServerNotes(result) {
   const blocks = result.content || []
   const texts = blocks.filter((b) => b.type === 'text').map((b) => b.text)
   if (blocks[0]?.type !== 'text' || isCodeConnectPrompt(texts[0])) return { text: '', notes: texts }
-  const [text, ...notes] = texts
+  const [first, ...rest] = texts
+  const notes = rest.filter(isServerNote)
+  const text = [first, ...rest.filter((t) => !isServerNote(t))].join('\n\n')
   return { text, notes }
 }
 

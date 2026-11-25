@@ -82,9 +82,10 @@ fig usage                 이 CLI 가 보낸 요청의 집계, 같은 도구·�
   `hidden="true"` 라 기본 출력은 13개다. 전부 보려면 `--hidden`.
 - **`ctx` 는 스크린샷을 빼고 부른다**(`excludeScreenshot: true`). 텍스트 파이프에
   base64 는 쓸모가 없다. 그림이 필요하면 `fig shot`.
-- **서버가 붙인 안내 문구는 결과에서 뺀다.** 응답의 텍스트 블록은 첫 블록만 데이터이고
-  뒤따르는 블록은 전부 서버 안내다(`ctx` 는 코드 뒤에 변환 지시·node id 설명·이미지
-  서버 설명·원격 서버 권유가 4블록으로 온다). 첫 블록이 "missing code connect mappings"
+- **서버가 붙인 안내 문구는 결과에서 뺀다.** 응답의 첫 텍스트 블록이 데이터이고, 뒤따르는
+  블록 중 알려진 안내 접두어(`IMPORTANT:`·`SUPER CRITICAL:`·node id 설명·이미지 서버 설명·
+  Code Connect 설명)로 시작하는 것만 뺀다. `ctx` 의 `These styles are contained in the design:`
+  블록(디자인 토큰)과 처음 보는 블록은 데이터로 보고 본문 뒤에 붙인다. 첫 블록이 "missing code connect mappings"
   안내이면 데이터가 없는 응답이다. 사용자 요청이 아닌 지시문이라 에이전트가 그대로 읽으면
   따를 수 있다. 개수만 stderr 로 알리고 원문은 `--raw` 로 본다.
 - **`ctx` 가 코드 없이 Code Connect 안내만 받으면 오류다.** 종료 코드 1 과 함께
